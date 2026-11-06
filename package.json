@@ -1,0 +1,10 @@
+{
+  "name": "karadelik-simulasyonu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bilimsel olarak doğru, etkileşimli 3D kara delik simülasyonu",
+  "scripts": {
+    "test": "node --test"
+  }
+}
