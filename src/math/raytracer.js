@@ -45,12 +45,15 @@ export const DEFAULT_OPTIONS = Object.freeze({
   atol: 1e-12,
   capFactor: 0.5, // dp45: h ≤ capFactor · h_nat
   kappa: 0.1, // rk4: h = kappa · h_nat
+  kappaFar: undefined, // rk4: r > rFar'da kullanılacak (daha büyük) κ; undefined → kappa
+  rFar: 20, // uzak bölge eşiği
   maxSteps: 20000, // kabul edilen adım bütçesi
   rEscape: undefined, // varsayılan: max(1e4, 2 r_cam)
   captureMargin: 1e-3, // r < r₊ + captureMargin → yakalandı
   maxDiskHits: 1, // bu kadar disk kesişiminde dur (1 = opak disk)
   crossing: undefined, // 'newton' | 'hermite' | 'linear' (varsayılan: f64'te newton, f32'de hermite)
   trackMax: false, // her adımda |ΔH|, |ΔQ| maksimumunu izle
+  axisEps: 1e-7, // |L| < axisEps ise L = 0 (tam eksenel ışın) kabul edilir: kutup geçişi sertliğini önler
 });
 
 /** Disk modeli varsayılanları: r_in = ISCO, r_out = 20 M. */
@@ -81,7 +84,9 @@ export function traceRay(params, ray, opts = {}) {
   const crossMode = o.crossing ?? (f32 ? 'hermite' : 'newton');
 
   const { rp } = G.horizons(a);
-  const L = ray.lambda;
+  // |L| çok küçükse ışın kutuptan ~|L|/b mesafede geçer (φ, π kadar çok hızlı döner, adım ~|L|/b'ye düşer).
+  // L := 0 yapmak yönde ≲ axisEps/b rad (≈ 2e-8) hata yapar ve θ koordinatının eksenden geçmesine izin verir.
+  const L = Math.abs(ray.lambda) < o.axisEps ? 0 : ray.lambda;
   const Q = ray.Q;
   const rEsc = o.rEscape ?? Math.max(1e4, 2 * ray.r);
   const rCapture = rp + o.captureMargin;
@@ -124,6 +129,7 @@ export function traceRay(params, ray, opts = {}) {
   const Ftmp = new Float64Array(n);
   const rpF = fr32(rp);
   const kappaF = fr32(o.kappa);
+  const kappaFarF = fr32(o.kappaFar ?? o.kappa);
 
   const hNat = f32
     ? (yy, F) => G.naturalStepF32(rpF, yy[0], yy[1], F[0], F[1], F[2])
@@ -244,7 +250,10 @@ export function traceRay(params, ray, opts = {}) {
       if (Math.cos(yA[1]) * Math.cos(yn[1]) < 0) recordCrossing(hUsed, kA, ws.k1, yn);
       y.set(yn);
     } else {
-      let hh = f32 ? fr32(kappaF * hNat(y, ws.k1)) : o.kappa * hNat(y, ws.k1);
+      const far = y[0] > o.rFar;
+      let hh = f32
+        ? fr32((far ? kappaFarF : kappaF) * hNat(y, ws.k1))
+        : (far ? (o.kappaFar ?? o.kappa) : o.kappa) * hNat(y, ws.k1);
       if (f32) rk4StepF32(f, y, hh, yn, ws, true);
       else rk4Step(f, y, hh, yn, ws, true);
       steps++;

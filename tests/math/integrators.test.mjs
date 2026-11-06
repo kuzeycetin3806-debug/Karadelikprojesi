@@ -10,16 +10,7 @@ import {
   integrateRK4,
   integrateDP45,
 } from '../../src/math/integrators.js';
-
-/** En küçük kareler eğimi (log-log). */
-export function slope(xs, ys) {
-  const lx = xs.map(Math.log), ly = ys.map(Math.log);
-  const n = xs.length;
-  const mx = lx.reduce((s, v) => s + v, 0) / n, my = ly.reduce((s, v) => s + v, 0) / n;
-  let num = 0, den = 0;
-  for (let i = 0; i < n; i++) { num += (lx[i] - mx) * (ly[i] - my); den += (lx[i] - mx) ** 2; }
-  return num / den;
-}
+import { slope } from './helpers.mjs';
 
 // Doğrusal olmayan test sistemi: sarkaç  θ'' = −sin θ  (y = [θ, ω]); enerji E = ω²/2 − cos θ korunur.
 const pendulum = (y, out) => { out[0] = y[1]; out[1] = -Math.sin(y[0]); };

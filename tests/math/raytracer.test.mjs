@@ -199,9 +199,6 @@ test('5. Sonlu kamera r=50M: λ = p_φ/(−p_t) (ışından); −α sinθ_o\'dan
     const h = res.hits[0];
     assert.equal(h.lambda, ray.lambda, 'hit.lambda ışının L/E değeridir');
     const lamBardeen = -alpha * Math.sin(th);
-    // aynı r için Bardeen-λ ile g
-    const gBardeen = 1 / (1 / h.g * 1); // yer tutucu: aşağıda diskRedshiftFactor ile
-    void gBardeen;
     maxLamRel = Math.max(maxLamRel, Math.abs(ray.lambda / lamBardeen - 1));
     n++;
   }
@@ -238,8 +235,9 @@ test('6. Kritik ışın foton küresinde kalır: Schwarzschild r=3 (b=3√3) ve 
     const R = G.radialPotential(a, 1, L, Q, rph);
     assert.ok(Math.abs(R) < 1e-9, `a=${a}: R(r_ph)=${R}`);
     // Mino zamanında 2 tam tur: Δφ = 4π
-    const dphi = (G.horizons(a), 1) && (() => { const o = new Float64Array(6); f(y0, o); return o[2]; })();
-    const T = (4 * Math.PI) / Math.abs(dphi);
+    const o0 = new Float64Array(6);
+    f(y0, o0);
+    const T = (4 * Math.PI) / Math.abs(o0[2]); // dφ/dσ sabit → 2 tam tur
     const r = integrateDP45(f, y0, T, { rtol: 1e-13, atol: 1e-15, nErr: 5 });
     const dr = Math.abs(r.y[0] - rph);
     console.log(`  a=${a} ${pro ? 'prograd' : 'retrograd'}: r_ph=${rph.toFixed(6)}, L=${L.toFixed(6)}, 2 tur sonrası |r−r_ph| = ${fmt(dr)}, |Δφ|=${Math.abs(r.y[2]).toFixed(6)} (4π=${(4 * Math.PI).toFixed(6)}), θ sapması ${fmt(Math.abs(r.y[1] - Math.PI / 2))}`);
@@ -277,7 +275,9 @@ test('7a. Eksen geçişi: L=0 meridyen ışını kutuptan geçer; yönü düzlem
   const expect = [Math.cos(psi), 0, Math.sin(psi)];
   const err = Math.hypot(v[0] - expect[0], v[1] - expect[1], v[2] - expect[2]);
   console.log(`  b=${b}, δ_kesin=${delta.toFixed(6)}, ψ=${psi.toFixed(6)} rad; yön=[${v.map((x) => x.toFixed(6)).join(', ')}] beklenen=[${expect.map((x) => x.toFixed(6)).join(', ')}]; fark=${fmt(err)}; θ_ham=${res.escape.thetaRaw.toFixed(4)} (negatif = eksenden geçti)`);
-  assert.ok(res.escape.thetaRaw < 0 || res.escape.thetaRaw > Math.PI || Math.abs(res.escape.phi - Math.PI) < 1e-6 || true);
+  // Kutuptan geçildiği için ham θ aralık dışındadır (negatif veya > π); kanonik θ ∈ [0, π]
+  assert.ok(res.escape.thetaRaw < 0 || res.escape.thetaRaw > Math.PI, `θ_ham=${res.escape.thetaRaw}`);
+  assert.ok(res.escape.theta >= 0 && res.escape.theta <= Math.PI);
   assert.ok(err < 2e-4, `yön hatası ${err}`); // r_esc=1e4'te asimptotik ekstrapolasyon ~1e-4 mertebesinde
   // L ≠ 0 küçük: sonuç sürekli
   for (const al of [1e-9, 1e-6]) {
