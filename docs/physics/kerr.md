@@ -31,6 +31,7 @@ Kısaltmalar: Σ = r² + a² cos²θ, Δ = r² − 2Mr + a², A = (r²+a²)² �
 - g_rr = Σ/Δ, g_θθ = Σ
 
 Tanım bölgesi r > r₊ (Δ = 0'da g_rr sonsuz). Özdeşlik: g_tt g_φφ − g_tφ² = −Δ sin²θ.
+Δ, iptal hatasından kaçınmak için **Δ = (r − r₊)(r − r₋)** biçiminde (r₋ = a²/r₊) hesaplanır; açık biçim a ≈ M'de r > r₊ iken bile 0 dönebiliyordu. Yine de Δ ≤ 0 çıkarsa `RangeError` fırlatılır (sessiz g_rr = ∞ yok). GLSL/float32'de de bu biçim kullanılmalıdır.
 
 ### 2.2 Ufuklar — `horizonRadii(M, a)` [MTW 33.5]
 
@@ -64,7 +65,7 @@ s = +1 prograd, −1 retrograd; D = r^{3/4} √(r^{3/2} − 3M r^{1/2} + 2 s a�
 
 | Fonksiyon | Formül |
 |---|---|
-| `keplerOmega` | Ω = +√M/(r^{3/2} + a√M) (prograd); Ω = −√M/(r^{3/2} − a√M) (retrograd) |
+| `keplerOmega` | Ω = +√M/(r^{3/2} + a√M) (prograd); Ω = −√M/(r^{3/2} − a√M) (retrograd). Retrograd payda r ≥ r₊ için ≥ 0 olup yalnızca a = M, r = M'de 0'dır → orada `RangeError`. |
 | `circularOrbitUt` | u^t = (r^{3/2} + s a√M)/D  ≡ 1/√(−(g_tt + 2g_tφΩ + g_φφΩ²)) |
 | `circularOrbitEnergy` (ek) | E = −u_t = (r^{3/2} − 2M r^{1/2} + s a√M)/D |
 | `circularOrbitAngularMomentum` (ek) | L = u_φ = s√M (r² − 2 s a√(Mr) + a²)/D |
@@ -79,8 +80,10 @@ Türetme: yayıcı u^μ = u^t(1, 0, 0, Ω); ν_em = −p_μu^μ = E u^t(1 − Ω
 
 **İşaret konvansiyonu:**
 - λ **fotonun** (yayıcıdan gözlemciye giden) L_z/E değeridir; λ > 0 ⇒ foton delikle aynı yönde (+φ) açısal momentum taşır.
-- Ω işaretlidir (§2.7). Madde gözlemciye yaklaşırken Ωλ > 0 ⇒ g > 1 (maviye kayma).
-- Bardeen ekran koordinatlarıyla: **λ = ξ = −α sinθ_o** (§2.11). Dolayısıyla prograd diskte **α < 0 yaklaşan (mavi) taraf**, α > 0 uzaklaşan (kırmızı) taraftır.
+- Ω işaretlidir (§2.7). Madde gözlemciye yaklaşırken Ωλ > 0 ⇒ 1/(1−Ωλ) > 1 (Doppler maviye kayma), ancak toplam **g > 1/u^t** garantisi vardır, g > 1 değil: u^t > 1 olduğundan yaklaşan tarafta bile g < 1 olabilir (yerçekimsel + enine Doppler baskın). Örnek: a = 0, r = 6M, λ = 0.1 → Ωλ > 0, g ≈ 0.712.
+- Bardeen ekran koordinatlarıyla (yönelim §2.11): **λ = ξ = −α sinθ_o**. Dolayısıyla prograd diskte **α < 0 (ekranda sol) yaklaşan taraf**, α > 0 (sağ) uzaklaşan taraftır.
+- **Geçerlilik:** λ = −α sinθ_o yalnızca **sonsuzdaki gözlemci** içindir. Sonlu uzaklıktaki kamerada (r_cam = 50M'de analitik Schwarzschild tahminine göre ~%1.5–2 hata) λ, ışın izleyicinin izlediği fotonun **p_φ/(−p_t)** değerinden alınmalıdır.
+- Bağımsız referans (denetçi, geometrik ışın izleme, Bardeen formülü kullanılmadan): a = 0.9, θ_o = 80°, (α, β) = (−7, 0) → r = 6.2080, g = 1.29907; (+7, 0) → r = 5.7629, g = 0.49940. Testte ~1e-5 içinde (bu değerler 5 basamak olduğundan) doğrulanır.
 - Fiziksel (E > 0) fotonlar için 1 − Ωλ > 0 olmalıdır; aksi halde `RangeError`.
 - Gözlenen özgül yoğunluk: I_ν,obs = g³ I_ν,em (I_ν/ν³ korunumu, Liouville); ν üzerinden entegre (bolometrik) yoğunluk g⁴.
 
@@ -114,10 +117,18 @@ Sonsuzdaki gözlemci (eğim θ_o):
 
 (ξ, η) = `criticalCurve(r)`; r, β² ≥ 0 olan tek aralık [r₁, r₂] ⊂ [r_ph,pro, r_ph,retro] üzerinde değişir (aralığın uçları bisection ile bulunur; β²'nin tek aralıkta pozitif olduğu ve ξ(r)'nin monoton azaldığı a ∈ {0.3, 0.9, 1}, θ_o ∈ {0.3, 1, π/2} için sayısal olarak taranmıştır).
 
-- α: ekranda izdüşümü alınmış spin eksenine dik (yatay); β: izdüşümü alınmış spin ekseni yönünde (düşey); birim M.
+**Ekran yönelimi (zorunlu sözleşme; ayna görüntüsünü önler):**
+
+- n̂ = delikten gözlemciye birim vektör (θ_o = açı(n̂, +z)).
+- ê_β = +z spin ekseninin ekran düzlemine izdüşümü (birim) → **β: ekranda yukarı**.
+- ê_α = ê_β × n̂ → **α: ekranda sağ**. Gözlemci deliğe (−n̂ yönünde) bakarken ê_α onun sağıdır (sağ = ileri × yukarı = (−n̂) × ê_β = ê_β × n̂).
+- Ekran ofseti b = α ê_α + β ê_β. Fiziksel foton +n̂ yönünde gittiğinden düz uzayda L_z = (b × n̂)_z = **−α sinθ_o** (vektörel kurulum; testte Bardeen formülü kullanılmadan sınanır). Bardeen'in α = −ξ/sinθ_o formülü yalnızca bu yönelim için geçerlidir.
+- Sonuç: prograd diskte **α < 0 (sol) yaklaşan/mavi taraf**, gölge **+α (sağa) kayar**.
+- λ = −α sinθ_o yalnızca sonsuzdaki gözlemci için geçerlidir; sonlu uzaklıktaki kamerada λ = p_φ/(−p_t) (ışından) kullanılmalıdır (bkz. §2.8). Birim M.
+
 - a > 0 için gölge **+α yönüne kayar**; yassı (prograd) kenar α < 0 tarafındadır. Kenardan bakışta (θ_o = π/2) α ∈ [−ξ(r_ph,pro), −ξ(r_ph,retro)] (a = M: [−2M, 7M]).
 - θ_o ve π − θ_o aynı eğriyi verir (ekvator yansıma simetrisi). θ_o ∈ [0, π].
-- Dönen eğri üstten başlayıp **saat yönünde** dolaşılır; t = 0 noktası prograd uçtur. Parametrizasyon r = r_orta − yarıçap·cos t, t_k = 2πk/n. Çift `n` uç noktaları (β = 0) tam içerir; uçlarda β tam 0'a sabitlenir.
+- Eğri sol uçtan (α_min, β = 0; prograd uç, t = 0) başlar, üst yarıdan (β > 0) geçip α_max'a gider ve alt yarıdan döner (**saat yönü**). Parametrizasyon r = r_orta − yarı_aralık·cos t (r₁ → r₂), t_k = 2πk/n. Çift `n` uç noktaları (β = 0) tam içerir; uçlarda β tam 0'a sabitlenir.
 - Özel durumlar: a < 1e-8·M → tam çember 3√3 M; sin θ_o < 1e-6 → yüz yüze çember, yarıçap √(η₀ + a²) (ξ(r₀) = 0); a = M için 2(1+√2)M ≈ 4.828 M.
 - a = M ve θ_o yeterince büyükken sol uç açıktır: sınırda α = −2M'de |β| ≤ √3 M dikey doğru parçası bulunur. Bu durumda t ∈ [0, 2π] kapalı aralıkta n nokta üretilir (ilk = (−2, +√3), son = (−2, −√3)); `n−1` çift seçilirse α_max tam örneklenir. Poligonu kapatan kenar bu doğru parçasıdır.
 - Schwarzschild: tüm noktalar yarıçap b_c = 3√3 M çember üzerinde [Synge 1966; C83].
@@ -133,7 +144,7 @@ Sonsuzdaki gözlemci (eğim θ_o):
 
 - Uzunluk birimi GM/c²: 1 M_sun için **1.476625 km**. Schwarzschild yarıçapı 2GM/c² = 2.953250 km. Zaman birimi GM/c³ = 4.92549×10⁻⁶ s.
 - Dönüşümler GM_sun'ı doğrudan kullanır (G'nin belirsizliği girmez).
-- `REFERENCE_MASSES` (Sgr A* ≈ 4.297×10⁶ M_sun, GRAVITY 2021; M87* ≈ 6.5×10⁹ M_sun, EHT 2019) **yaklaşıktır ve belirsizdir**; yalnızca bilgi ekranı içindir.
+- `REFERENCE_MASSES` (Sgr A* ≈ 4.297×10⁶ M_sun, GRAVITY Collab. 2022, A&A 657, L12; M87* ≈ 6.5×10⁹ M_sun, EHT 2019) **yaklaşıktır ve belirsizdir**; yalnızca bilgi ekranı içindir.
 - **Doğrulama notu:** Sabitler ve gök cismi kütleleri bu oturumda internetten yeniden doğrulanmadı; bilinen yayımlanmış değerlerdir. Yayın öncesi kaynak tablolardan teyit edilmelidir.
 
 ## 4. Sayısal notlar ve sınırlamalar
@@ -149,4 +160,7 @@ Sonsuzdaki gözlemci (eğim θ_o):
 - a = 0: r₊ = 2M, r₋ = 0, r_ph = 3M, r_isco = 6M, Ω(6M) = 6^{−3/2}, gölge yarıçapı 3√3 M (tüm noktalar), staticRedshift(6M) = √(2/3), η_verim = 0.0572.
 - a → M: r_isco → M / 9M, r_ph → M / 4M, ISCO verimi → 0.4226, kenardan gölge α ∈ [−2M, 7M], yüz yüze yarıçap 2(1+√2) M.
 - a = 0.9: r₊ = 1.43589, r_isco = 2.32088 / 8.71735, r_ph = 1.55785 / 3.91027, η = 0.156; a = 0.5: r_isco = 4.233; a = 0.998: r_isco = 1.2370, η = 0.321 (BPT72, T74 tabloları).
+- Ekran yönelimi: düz uzayda L_z = (b×n̂)_z = −α sinθ_o (vektörel, Bardeen formülünden bağımsız); denetçinin bağımsız ışın izlemesinden sabit g referansları (a = 0.9, θ_o = 80°, α = ∓7).
+- Küçük-a açılımı ξ_pro = 3√3 − 2a − a²/(2√3) + O(a³) (katsayı sayısal olarak doğrulandı; analitik türetme yalnızca önde gelen terim için yapıldı), ξ_retro = −3√3 − 2a + O(a²).
+- Δ çarpan biçimi (a = M'de r−1 = 1e-15'e kadar), keplerOmega retrograd a = M/r = M hatası, shadowBoundary M ölçeklemesi (M = 1e-6…1e6).
 - Bağımsız cebirsel koşullar (foton yörüngesi, ISCO), dE/dr = 0 (ISCO), E/L/u^t'nin metrikle tutarlılığı, Carter çift kökü, g_tt g_φφ − g_tφ² özdeşliği, M ölçeklemesi, asimptotik davranış, hata davranışı.

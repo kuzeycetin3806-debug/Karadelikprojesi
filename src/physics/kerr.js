@@ -59,6 +59,18 @@ function rPlusOf(M, a) {
   return M + Math.sqrt((M - a) * (M + a));
 }
 
+/**
+ * Δ = r² − 2Mr + a² = (r − r₊)(r − r₋), çarpan biçiminde.
+ * Açık biçim (r² − 2Mr + a²) ufka yakın yerde (özellikle a≈M) iptal hatasına uğrar ve r>r₊
+ * iken bile 0 dönebilir; çarpan biçimi r−r₊ tam hesaplandığı için bunu önler.
+ * r₋ = a²/r₊ (r₊ r₋ = a²) kullanılır → küçük a'da da iptal yok.
+ */
+function deltaOf(M, a, r) {
+  const rp = rPlusOf(M, a);
+  const rm = (a * a) / rp;
+  return (r - rp) * (r - rm);
+}
+
 /** r > r₊ (strict=true) veya r ≥ r₊ (strict=false) şartı. */
 function checkOutside(M, a, r, strict = true) {
   checkFinite('r', r);
@@ -92,7 +104,11 @@ export function metricBL(M = 1, a = 0, r, theta) {
   const c = Math.cos(theta);
   const s2 = s * s;
   const Sigma = r * r + a * a * c * c;
-  const Delta = r * r - 2 * M * r + a * a;
+  const Delta = deltaOf(M, a, r);
+  if (!(Delta > 0)) {
+    // Sözleşme: r > r₊ iken Δ > 0 olmalı; sessizce g_rr = ∞ döndürme.
+    throw new RangeError(`Δ = ${Delta} ≤ 0: g_rr tanımsız (r=${r}, a=${a}, M=${M})`);
+  }
   const A = (r * r + a * a) ** 2 - a * a * Delta * s2;
   return {
     Sigma,
@@ -148,7 +164,7 @@ export function frameDraggingOmega(M = 1, a = 0, r, theta) {
   checkOutside(M, a, r, false);
   checkFinite('theta', theta);
   const s = Math.sin(theta);
-  const Delta = r * r - 2 * M * r + a * a;
+  const Delta = deltaOf(M, a, r); // ufukta (r=r₊) tam 0 olabilir; A yine de > 0
   const A = (r * r + a * a) ** 2 - a * a * Delta * s * s;
   return (2 * M * a * r) / A;
 }
@@ -196,7 +212,8 @@ export function iscoRadius(M = 1, a = 0, prograde = true) {
 /**
  * İşaretli açısal hız (dφ/dt) [B72 eq. 2.16]:
  *   Ω = +√M /(r^{3/2} + a√M)  (prograd),   Ω = −√M /(r^{3/2} − a√M)  (retrograd).
- * Pozitif = deliğin dönüş yönü. Retrogradda payda r ≥ r₊ için daima > 0'dır.
+ * Pozitif = deliğin dönüş yönü. Prograd payda daima > 0. Retrograd payda r^{3/2} − a√M, r ≥ r₊ ≥ M
+ * için ≥ 0'dır ve YALNIZCA a = M, r = M noktasında 0 olur (Ω → −∞) → bu nokta RangeError fırlatır.
  * Zaman benzeri/kararlı olma koşulu BURADA denetlenmez (bkz. circularOrbitUt).
  */
 export function keplerOmega(M = 1, a = 0, r, prograde = true) {
@@ -204,7 +221,14 @@ export function keplerOmega(M = 1, a = 0, r, prograde = true) {
   checkOutside(M, a, r, false);
   const sM = Math.sqrt(M);
   const r32 = r * Math.sqrt(r);
-  return prograde ? sM / (r32 + a * sM) : -sM / (r32 - a * sM);
+  if (prograde) return sM / (r32 + a * sM);
+  const den = r32 - a * sM;
+  if (!(den > 0)) {
+    throw new RangeError(
+      `keplerOmega: retrograd Ω, a=M ve r=M noktasında tanımsız (payda=${den}; r=${r}, a=${a}, M=${M})`
+    );
+  }
+  return -sM / den;
 }
 
 /** Ortak: dairesel yörünge paydası D = r^{3/4} √(r^{3/2} − 3M r^{1/2} + 2 s a √M). */
@@ -266,7 +290,12 @@ export function circularOrbitAngularMomentum(M = 1, a = 0, r, prograde = true) {
  *  - λ, FOTONUN (yayıcıdan gözlemciye giden) sabit L_z/E değeridir; λ>0 fotonun delikle aynı
  *    yönde (+φ) açısal momentum taşıdığı anlamına gelir. Bardeen ekran koordinatlarıyla
  *    λ = ξ = −α sinθ_o (α: ekranda spin eksenine dik yatay yer değiştirme).
- *  - Ω işaretli (keplerOmega ile aynı). Madde gözlemciye yaklaşırken Ωλ > 0 → g > 1 (maviye kayma).
+ *  - Ω işaretli (keplerOmega ile aynı). Madde gözlemciye yaklaşırken Ωλ > 0 → 1/(1−Ωλ) > 1 (Doppler
+ *    mavi), ama toplam g = 1/(u^t(1−Ωλ)) yalnızca g > 1/u^t garantisi verir; u^t > 1 olduğundan
+ *    yaklaşan tarafta bile g < 1 olabilir (yerçekimsel + enine Doppler kırmızıya kayması baskın).
+ *  - Ekran yönelimi için bkz. shadowBoundary; λ = −α sinθ_o YALNIZCA sonsuzdaki gözlemci içindir.
+ *    Sonlu uzaklıktaki kamerada (r_cam ~ 50M'de analitik Schwarzschild tahminine göre ~%1.5–2 hata)
+ *    λ, izlenen fotonun p_φ/(−p_t) değerinden alınmalıdır.
  *  - Gözlenen yoğunluk için I_obs = g³ I_em (I_ν/ν³ korunumu); bolometrik: g⁴.
  * Fiziksel olarak E>0 fotonlar için 1 − Ωλ > 0 olmalıdır; aksi halde (fiziksel olmayan λ) RangeError.
  */
@@ -372,10 +401,18 @@ function betaSquared(M, a, thetaO, r) {
  *   α = −ξ / sinθ_o,   β = ± √( η + a² cos²θ_o − ξ² cot²θ_o ),
  * ξ(r), η(r) için r ∈ [r₁, r₂] ⊂ [r_ph,pro, r_ph,retro] ve β² ≥ 0 olmalıdır.
  *
- * Koordinatlar (M cinsinden): α = ekranda izdüşümü alınmış spin eksenine DİK (yatay),
- * β = izdüşümü alınmış spin ekseni yönünde (düşey). α = −ξ/sinθ_o seçimi Bardeen'inkidir:
- * a>0 için gölge +α yönüne kayar, prograd (yassı) kenar α<0 tarafındadır; disk maddesinin
- * gözlemciye yaklaşan (mavi kayma) tarafı da α<0'dır (λ=ξ=−α sinθ_o ile tutarlı).
+ * EKRAN YÖNELİMİ (M cinsinden; Ö1 — ayna görüntüsü belirsizliğini kaldırır):
+ *   n̂  = delikten gözlemciye birim vektör (gözlemci konumu ∝ +n̂, θ_o = açı(n̂, +z)),
+ *   ê_β = +z spin ekseninin ekran düzlemine izdüşümü (birim) → β ekseni, ekranda "yukarı",
+ *   ê_α = ê_β × n̂ → α ekseni. Gözlemci deliğe (−n̂ yönünde) bakarken ê_α onun SAĞIDIR
+ *         (sağ = ileri × yukarı = (−n̂) × ê_β = ê_β × n̂).
+ *   Foton ışın demeti ekranda b = α ê_α + β ê_β ofsetiyle gelir; fiziksel foton +n̂ yönünde gider,
+ *   dolayısıyla L_z = (b × n̂)_z = −α sinθ_o (düz uzayda vektörel; testte bağımsız sınanır).
+ *   Bardeen'in α = −ξ/sinθ_o formülü yalnızca bu yönelim için geçerlidir.
+ * Sonuçlar (a>0, prograd disk): gölge +α (sağa) kayar, yassı (prograd) kenar α<0 (sol) tarafındadır;
+ * diskin gözlemciye yaklaşan (mavi) tarafı α<0 (sol), uzaklaşan tarafı α>0 (sağ) olur.
+ * λ = ξ = −α sinθ_o ilişkisi YALNIZCA sonsuzdaki gözlemci için geçerlidir; sonlu uzaklıktaki
+ * kamerada (r_cam=50M'de ~%1.5–2 sapma) λ, ışının p_φ/(−p_t) değerinden alınmalıdır.
  *
  * @param {number} M
  * @param {number} a            0 ≤ a ≤ M
@@ -392,7 +429,9 @@ function betaSquared(M, a, thetaO, r) {
  *
  * Özel durumlar: a < 1e-8 M → tam çember (Schwarzschild, yarıçap 3√3 M);
  * sinθ_o < 1e-6 → yüz yüze çember, yarıçap √(η₀ + a²) (ξ(r₀)=0).
- * Parametrizasyon: r = r_orta + yarıçap_aralığı·cos t, t_k = 2πk/n (uçlarda nokta yoğunlaşır).
+ * Parametrizasyon: r = r_orta − yarı_aralık·cos t (kodda rMid − rHalf·cos t), t_k = 2πk/n;
+ * t=0 → r=r₁ (sol uç, α_min, β=0); eğri üst yarıdan (β>0) geçip α_max'a, sonra alt yarıdan döner
+ * (uçlarda nokta yoğunlaşır).
  */
 export function shadowBoundary(M = 1, a = 0, inclination, n) {
   checkSpin(M, a, true);
@@ -445,7 +484,7 @@ export function shadowBoundary(M = 1, a = 0, inclination, n) {
 
   // β²(r) ≥ 0 olan aralığın uçları [r1, r2] (r₀'da β² = η + a²cos²θ_o > 0).
   const g = (r) => betaSquared(M, a, inclination, r);
-  const tol = -1e-12;
+  const tol = -1e-12 * M * M; // β² boyutu M² → M ile ölçekle (K1)
   let r1 = rPro;
   if (g(rPro) < tol) {
     let l = rPro;

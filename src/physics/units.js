@@ -70,7 +70,8 @@ export function secondsToTime(seconds, solarMasses = 1) {
 
 /**
  * Bilgi ekranı için örnek kütleler (güneş kütlesi cinsinden, YAKLAŞIK; belirsizlik ciddidir).
- *  - Sgr A*: ≈ 4.30×10⁶ (GRAVITY Collab. 2021, A&A 647, A59: 4.297±0.012 ×10⁶, uzaklık belirsizliğine bağlı).
+ *  - Sgr A*: ≈ 4.30×10⁶ — GRAVITY Collab. 2022, A&A 657, L12: (4.297 ± 0.012 ± 0.040 sist.)×10⁶,
+ *    R₀ = 8277 ± 9 ± 33 pc (kütle ile uzaklık güçlü biçimde bağıntılıdır).
  *  - M87*:   ≈ 6.5×10⁹ (EHT Collab. 2019, ApJL 875, L6: 6.5±0.7 ×10⁹).
  */
 export const REFERENCE_MASSES = Object.freeze({

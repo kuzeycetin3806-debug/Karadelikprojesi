@@ -1,5 +1,6 @@
 /**
- * kerr.js ve units.js testleri.  Çalıştırma:  node --test src/physics/
+ * kerr.js ve units.js testleri.  Çalıştırma:  npm test   (veya:  node --test "src/physics/*.test.mjs")
+ * NOT: `node --test src/physics/` Node ≥ 21'de dizini dosya sanıp başarısız olur.
  * Birimler: G = c = 1, uzunluk M cinsinden (aksi belirtilmedikçe M = 1).
  */
 import { test } from 'node:test';
@@ -95,8 +96,21 @@ test('a=0: disk kırmızıya kayması (Schwarzschild)', () => {
   const Om = Math.pow(r, -1.5);
   const alpha = 3.0;
   close(diskRedshiftFactor(1, 0, r, -alpha), Math.sqrt(1 - 3 / r) / (1 + Om * alpha));
-  // Yaklaşan tarafta (α<0 ⇒ λ>0) mavi kayma
+  // Yaklaşan tarafta (α<0 ⇒ λ>0) g daha büyük (λ'nın işaretine göre monotonluk)
   assert.ok(diskRedshiftFactor(1, 0, r, +6) > diskRedshiftFactor(1, 0, r, -6));
+});
+
+test('diskRedshiftFactor: Ωλ>0 yalnızca g > 1/u^t garantisi verir (g>1 değil)', () => {
+  // a=0, r=6M, λ=0.1: Ωλ>0 ama g ≈ 0.712 < 1 (K4)
+  const ut = circularOrbitUt(1, 0, 6, true);
+  const Om = keplerOmega(1, 0, 6, true);
+  const lam = 0.1;
+  assert.ok(Om * lam > 0);
+  const g = diskRedshiftFactor(1, 0, 6, lam, true);
+  assert.ok(g > 1 / ut);
+  assert.ok(g < 1);
+  // Yeterince büyük λ ile g>1 olur
+  assert.ok(diskRedshiftFactor(1, 0, 6, 6, true) > 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -278,12 +292,26 @@ test('criticalCurve: Carter radyal potansiyeli R(r)=0 ve R\'(r)=0 (çift kök)',
   }
 });
 
-test('criticalCurve: a küçükken Schwarzschild limiti ξ²+η → 27M²', () => {
-  const a = 1e-3;
-  const rp = photonOrbitRadius(1, a, true);
-  const { xi, eta } = criticalCurve(1, a, rp);
-  close(xi * xi + eta, 27, 5e-2); // O(a) düzeltmeli: ξ ≈ 3√3·... yakın
-  close(rp, 3, 1e-2);
+test('criticalCurve: küçük a açılımı ξ_pro = 3√3 − 2a − a²/(2√3) + O(a³), ξ_retro = −3√3 − 2a + O(a²)', () => {
+  // Türetme (M=1): prograd foton yörüngesi √r (r−3) + 2a = 0 → r = 3 − 2a/√3 + O(a²);
+  // ξ = [r²(3−r) − a²(r+1)]/[a(r−1)] → ξ = 3√3 − 2a + c₂a², c₂ sayısal olarak −1/(2√3)=−0.288675.
+  // (İşaret hatası ξ=3√3+2a veya ξ=3√3 olsaydı fark 2a ≥ 2e-3 olurdu; tolerans O(a³) mertebesinde.)
+  const s3 = 3 * Math.sqrt(3);
+  for (const a of [1e-2, 1e-3]) {
+    const rp = photonOrbitRadius(1, a, true);
+    const { xi, eta } = criticalCurve(1, a, rp);
+    close(xi, s3 - 2 * a - (a * a) / (2 * Math.sqrt(3)), 5 * a * a * a, `ξ_pro a=${a}`);
+    // Önde gelen terim tek başına O(a²) hatalı kalır: işaret/katsayı hatası yakalanır
+    assert.ok(Math.abs(xi - (s3 - 2 * a)) < 0.4 * a * a);
+    assert.ok(Math.abs(xi - (s3 + 2 * a)) > 3.9 * a);
+    close(eta, 0, 1e-8);
+    close(xi * xi + eta, 27 - 12 * Math.sqrt(3) * a, 5 * a * a); // ξ²+η = 27 − 12√3 a + O(a²)
+    close(rp, 3 - (2 * a) / Math.sqrt(3), 2 * a * a);
+    // Retrograd: ξ_retro = −3√3 − 2a + O(a²) (ξ<0; |ξ| büyür)
+    const rr = photonOrbitRadius(1, a, false);
+    const xr = criticalCurve(1, a, rr).xi;
+    close(xr, -s3 - 2 * a, 0.4 * a * a, `ξ_retro a=${a}`);
+  }
 });
 
 test('criticalCurve: a=0 anlamlı hata fırlatır', () => {
@@ -339,6 +367,80 @@ test('shadowBoundary: noktalar eğri ilişkisini sağlar α²+β² = η+ξ²+a²
     const rhs = eta + xi * xi + a * a * Math.cos(inc) ** 2;
     close(lhs, rhs, 1e-7);
   }
+});
+
+test('shadowBoundary: M ölçeklemesi çok küçük M için de geçerli (K1: tol ∝ M²)', () => {
+  for (const [M, inc] of [[1e-6, 1.4], [1e-4, Math.PI / 2 - 0.001], [1e6, 1.4]]) {
+    const p1 = shadowBoundary(1, 0.9, inc, 64);
+    const pM = shadowBoundary(M, 0.9 * M, inc, 64);
+    p1.forEach((p, i) => {
+      close(pM[i].alpha / M, p.alpha, 1e-7, `M=${M} i=${i}`);
+      close(pM[i].beta / M, p.beta, 1e-7, `M=${M} i=${i}`);
+    });
+    assert.equal(pM[0].beta, 0);
+    assert.equal(pM[32].beta, 0);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ekran yönelimi: bağımsız (Bardeen formülünü kullanmayan) vektörel sınama  [Ö1, Ö2]
+// ---------------------------------------------------------------------------
+
+test('ekran yönelimi: düz uzayda L_z = (b×n̂)_z = −α sinθ_o (ê_α = ê_β × n̂, vektörel kurulum)', () => {
+  const dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const cross = (u, v) => [
+    u[1] * v[2] - u[2] * v[1],
+    u[2] * v[0] - u[0] * v[2],
+    u[0] * v[1] - u[1] * v[0],
+  ];
+  const norm = (u) => {
+    const l = Math.hypot(...u);
+    return u.map((x) => x / l);
+  };
+  const zhat = [0, 0, 1];
+  for (const thetaO of [0.3, 1.0, Math.PI / 2, 2.2, 3.0]) {
+    for (const phiO of [0, 0.7, -2.0]) {
+      // n̂: delikten gözlemciye
+      const n = [
+        Math.sin(thetaO) * Math.cos(phiO),
+        Math.sin(thetaO) * Math.sin(phiO),
+        Math.cos(thetaO),
+      ];
+      // ê_β: +z'nin ekrana (n̂'ya dik düzleme) izdüşümü
+      const zp = zhat.map((z, i) => z - dot(zhat, n) * n[i]);
+      const eb = norm(zp);
+      // ê_α = ê_β × n̂ (gözlemci deliğe bakarken sağ taraf: ileri × yukarı = (−n̂) × ê_β)
+      const ea = cross(eb, n);
+      const forward = n.map((x) => -x);
+      const rightByDef = cross(forward, eb);
+      for (let i = 0; i < 3; i++) close(ea[i], rightByDef[i], 1e-14);
+      for (const [alpha, beta] of [[-7, 0], [4, -1.5], [2.5, 3.1]]) {
+        const b = [0, 1, 2].map((i) => alpha * ea[i] + beta * eb[i]);
+        // Fiziksel foton +n̂ yönünde gider; konumu b (+ n̂ boyunca kayma) → L = x × p, p = n̂
+        const L = cross(b, n);
+        close(L[2], -alpha * Math.sin(thetaO), 1e-13, `θ_o=${thetaO} φ_o=${phiO} α=${alpha}`);
+        // β bileşeni L_z'ye katkı vermez (ê_β, n̂ ve ẑ ile aynı düzlemde)
+        close(dot(b, n), 0, 1e-14);
+      }
+    }
+  }
+});
+
+test('ekran yönelimi: sabit referans g değerleri (bağımsız ışın izleme, a=0.9, θ_o=80°)', () => {
+  // Kaynak: bilimsel denetim raporu §3b — ekrandan geometrik kurulan ışınlar, Bardeen formülü
+  // kullanılmadan Kerr geodeziği olarak integre edildi. Girdi: λ = −α sinθ_o.
+  const a = 0.9;
+  const thetaO = (80 * Math.PI) / 180;
+  const cases = [
+    { alpha: -7, r: 6.208, g: 1.29907 }, // yaklaşan taraf (sol), mavi
+    { alpha: +7, r: 5.7629, g: 0.4994 }, // uzaklaşan taraf (sağ), kırmızı
+  ];
+  for (const { alpha, r, g } of cases) {
+    const lam = -alpha * Math.sin(thetaO);
+    close(diskRedshiftFactor(1, a, r, lam, true), g, 1e-4, `α=${alpha}`);
+  }
+  assert.ok(diskRedshiftFactor(1, a, 6.208, 7 * Math.sin(thetaO), true) > 1);
+  assert.ok(diskRedshiftFactor(1, a, 5.7629, -7 * Math.sin(thetaO), true) < 1);
 });
 
 test('shadowBoundary: a→0 sürekliliği (a=1e-3, çember ±0.1 %)', () => {
@@ -480,6 +582,45 @@ test('geçersiz girdi RangeError fırlatır (sessiz NaN yok)', () => {
   assert.throws(() => staticRedshift(1, 0.9, 1.9, Math.PI / 2), RangeError); // ergosferde
   assert.throws(() => diskRedshiftFactor(1, 0, 6, 1e3), RangeError); // 1−Ωλ<0
   assert.throws(() => diskRedshiftFactor(1, 0, 6, Infinity), RangeError);
+});
+
+test('K2: Δ=(r−r₊)(r−r₋); r>r₊ iken Δ=0 / g_rr=∞ dönmez, ufukta RangeError', () => {
+  // a=M: r₊=r₋=M → Δ=(r−1)². Eski açık biçim r−1 ≲ 1e-8'de 0 döndürebiliyordu.
+  for (const eps of [1e-3, 1e-6, 1e-8, 1e-9, 1e-12, 1e-15]) {
+    const r = 1 + eps;
+    const e = r - 1; // tam
+    const g = metricBL(1, 1, r, 1.0);
+    assert.ok(g.Delta > 0, `eps=${eps}`);
+    assert.ok(Number.isFinite(g.grr), `eps=${eps}`);
+    close(g.Delta / (e * e), 1, 1e-12, `eps=${eps}`);
+  }
+  // a=0.999999: log ızgarada r₊'nın hemen dışı
+  const rp = horizonRadii(1, 0.999999).rPlus;
+  const rm = horizonRadii(1, 0.999999).rMinus;
+  for (let k = 0; k < 40; k++) {
+    const r = rp + Math.pow(10, -2 - 0.3 * k);
+    if (!(r > rp)) continue;
+    const g = metricBL(1, 0.999999, r, 0.5);
+    assert.ok(g.Delta > 0 && Number.isFinite(g.grr), `k=${k}`);
+    close(g.Delta / ((r - rp) * (r - rm)), 1, 1e-6, `k=${k}`);
+  }
+  // Ufukta ve içinde: RangeError (sessiz sonsuzluk yok)
+  assert.throws(() => metricBL(1, 1, 1, 1.0), RangeError);
+  assert.throws(() => metricBL(1, 0.999999, rp, 1.0), RangeError);
+  // Çerçeve sürüklenmesi ufukta tanımlı kalır ve Ω_H'ye eşittir (a/(2M r₊))
+  close(frameDraggingOmega(1, 1, 1, 1.0), 0.5, 1e-14);
+});
+
+test('K3: keplerOmega retrograd a=M, r=M RangeError; çevresinde sonlu', () => {
+  assert.throws(() => keplerOmega(1, 1, 1, false), RangeError);
+  assert.throws(() => keplerOmega(2, 2, 2, false), RangeError);
+  // Prograd aynı noktada limit değeri verir: 1/(1+1)
+  close(keplerOmega(1, 1, 1, true), 0.5, 1e-14);
+  // r > M'de retrograd sonlu ve negatif
+  const om = keplerOmega(1, 1, 1 + 1e-6, false);
+  assert.ok(Number.isFinite(om) && om < 0);
+  // r_isco,retro = 9M'de Ω = −1/(27 − 1)
+  close(keplerOmega(1, 1, 9, false), -1 / 26, 1e-14);
 });
 
 test('ergosfer içi/dışı: statik gözlemci yalnızca dışarıda', () => {
