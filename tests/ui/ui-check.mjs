@@ -344,12 +344,18 @@ async function logicDesktop() {
   await sleep(800);
   check('panel aç/kapa düğmesi (aria-expanded=false)', (await page.getAttribute('#panel-toggle', 'aria-expanded')) === 'false' && !(await page.isVisible('#panel')));
   await page.click('#panel-toggle');
-  await sleep(200);
+  // Sabit bekleme yerine koşul: SwiftShader'da render ana iş parçacığını yüzlerce ms meşgul edebilir.
+  await page.waitForFunction(() => window.__karadelik.ui.isOpen() && !document.getElementById('panel').hasAttribute('inert') && getComputedStyle(document.getElementById('panel')).visibility === 'visible' && getComputedStyle(document.getElementById('ui-a')).visibility === 'visible', null, { timeout: 15000 });
   await page.focus('#ui-a');
+  const focAfter = await page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
+  check('panel açıkken kaydırıcıya odak verilebilir', focAfter === 'ui-a', focAfter);
   await page.keyboard.press('Escape');
-  await sleep(800);
-  check('Esc paneli kapatır, odak düğmeye döner', !(await page.isVisible('#panel')) && (await page.evaluate(() => document.activeElement?.id)) === 'panel-toggle');
+  await page.waitForFunction(() => !window.__karadelik.ui.isOpen() && document.activeElement?.id === 'panel-toggle' && getComputedStyle(document.getElementById('panel')).visibility === 'hidden', null, { timeout: 15000 }).catch(() => {});
+  const preEsc = await page.evaluate(() => { const el = document.getElementById('ui-a'); const d = el?.closest('details'); return { detailsOpen: d ? d.open : null, disabled: el?.disabled, rect: el?.getBoundingClientRect().height }; });
+  const escSt = await page.evaluate(() => ({ open: window.__karadelik.ui.isOpen(), active: document.activeElement?.id || document.activeElement?.tagName }));
+  check('Esc paneli kapatır, odak düğmeye döner', !(await page.isVisible('#panel')) && escSt.active === 'panel-toggle', JSON.stringify({ ...escSt, ...preEsc, focAfter }));
   await page.click('#panel-toggle');
+  await page.waitForFunction(() => window.__karadelik.ui.isOpen() && !document.getElementById('panel').hasAttribute('inert') && getComputedStyle(document.getElementById('panel')).visibility === 'visible' && getComputedStyle(document.getElementById('ui-a')).visibility === 'visible', null, { timeout: 15000 });
 
   // ekran görüntüsü indirme
   const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('button[aria-label="Ekran görüntüsü indir"]')]);

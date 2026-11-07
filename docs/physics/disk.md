@@ -140,7 +140,7 @@ I_bol,obs = ∫ B_ν(gT) dν = σ (gT)⁴/π = g⁴ σ T⁴/π
 |---|---|
 | **Renk (kromatisite)** | `T_obs = g · f_col · T_eff` → `blackbodyLUT` (RGB, Y = 1) |
 | **Parlaklık, mod A ("bolometrik", seçenek; kodda varsayılan mod B `band`)** | `g⁴ · (T_eff/T_max)⁴ = g⁴ F/F_max` (f_col kaybolur) × kromatisite × pozlama |
-| **Parlaklık, mod B ("band / katı fotometrik")** | `f_col⁻⁴ · Y(T_obs)/Y_ref` , `Y_ref = Y(f_col T_max)` (LUT'un 4. kanalı log₁₀Y) |
+| **Parlaklık, mod B ("band / katı fotometrik")** | `f_col⁻⁴ · Y(T_obs)/Y_ref` , `Y_ref = Y(T_max)` (f_col'dan bağımsız; böylece f_col'un fiziksel parlaklık etkisi f_col⁻⁴·Y(f_col·T)/Y(T) korunur) (LUT'un 4. kanalı log₁₀Y) |
 
 **Mod A ve B aynı gösterim değildir.** A: "enerjiyi" gösterir ve T_obs'tan bağımsız olarak g⁴ verir (sıcak/soğuk tarafın kontrastı **abartılıdır** ya da eksik, çünkü gözün duyarlılığı göz ardı edilir); B: gerçek bir görünür-band kamera/göz modelidir. Mod B'de g³ **ya da** g⁴ ayrıca uygulanmaz; tüm g bağımlılığı `Y(gT)` içindedir (g'yi iki kez saymayın). Seçim estetik/bilimsel taahhüt meselesidir; fiziksel olarak doğru olan B'dir (band için), A bolometrik bir kameradır.
 
