@@ -116,31 +116,22 @@ for (const [a, thDeg] of [[0, 90], [0.9, 60], [0.998, 85]]) {
 // ---------------------------------------------------------------------------
 // 4. g-faktörü
 // ---------------------------------------------------------------------------
-test('4. g-faktörü: a=0.9, θ_o=80°, (α,β)=(∓7,0) — denetçi referansı (r_cam≈1e7) ile', () => {
+test('4. g-faktörü: a=0.9, θ_o=80°, r_cam=1e4, (α,β)=(∓7,0) — denetçinin bağımsız izleyicisi (eşik 1e-7)', () => {
+  // Referans: denetçinin bağımsız izleyicisi (2. mertebe geodezik, Cash–Karp, Gram–Schmidt tetrad), r_cam=1e4.
+  // Eski referans (D=1e7'den düz çizgiyle taşınmış, ~1e-4 kendi hatası) kaldırıldı.
   const th = deg(80);
   const refs = [
-    { al: -7, r: 6.2080, g: 1.2990685 },
-    { al: 7, r: 5.7629, g: 0.4993970 },
+    { al: -7, r: 6.206991152, g: 1.299221371 },
+    { al: 7, r: 5.761331114, g: 0.499285021 },
   ];
-  const conv = {};
-  for (const rc of [1e4, 1e5, 1e6]) {
-    const cam = createCamera({ a: 0.9, rCam: rc, thetaCam: th });
-    for (const R of refs) {
-      const res = traceRay({ a: 0.9, rOut: 30 }, cam.impactToRay(R.al, 0), { rtol: 1e-12, atol: 1e-14 });
-      assert.equal(res.hits.length, 1);
-      const h = res.hits[0];
-      (conv[R.al] ??= []).push({ rc, r: h.r, g: h.g });
-    }
-  }
+  const cam = createCamera({ a: 0.9, rCam: 1e4, thetaCam: th });
   for (const R of refs) {
-    const rows = conv[R.al];
-    console.log(`  α=${R.al}: referans r=${R.r} g=${R.g}`);
-    for (const row of rows) console.log(`     r_cam=${row.rc.toExponential(0)}: r=${row.r.toFixed(5)} g=${row.g.toFixed(7)}  (Δr=${(row.r - R.r).toExponential(1)}, Δg=${(row.g - R.g).toExponential(1)})`);
-    const last = rows[rows.length - 1];
-    assert.ok(Math.abs(last.r - R.r) < 2e-4, `r: ${last.r} vs ${R.r}`);
-    assert.ok(Math.abs(last.g - R.g) < 5e-5, `g: ${last.g} vs ${R.g}`);
-    // r_cam büyüdükçe referansa yaklaşır (1e4 → 1e5)
-    assert.ok(Math.abs(rows[1].g - R.g) < Math.abs(rows[0].g - R.g));
+    const res = traceRay({ a: 0.9, rOut: 30 }, cam.impactToRay(R.al, 0), { rtol: 1e-12, atol: 1e-14 });
+    assert.equal(res.hits.length, 1);
+    const h = res.hits[0];
+    console.log(`  α=${R.al}: r=${h.r.toFixed(9)} (ref ${R.r}) Δr=${(h.r - R.r).toExponential(2)}; g=${h.g.toFixed(9)} (ref ${R.g}) Δg=${(h.g - R.g).toExponential(2)}`);
+    assert.ok(Math.abs(h.r - R.r) < 1e-7, `r: ${h.r} vs ${R.r}`);
+    assert.ok(Math.abs(h.g - R.g) < 1e-7, `g: ${h.g} vs ${R.g}`);
   }
   // Hamilton ve Carter biçimleri r_cam=50'de aynı sonucu verir
   const cam50 = createCamera({ a: 0.9, rCam: 50, thetaCam: th });
@@ -151,37 +142,36 @@ test('4. g-faktörü: a=0.9, θ_o=80°, (α,β)=(∓7,0) — denetçi referansı
   }
 });
 
-test('4b. g-faktörü: ek denetçi referans noktaları (a, θ_o, α, β) → (r, g)  [redshift.mjs çıktısı, D=1e7]', () => {
-  // prograde disk; (a, θ_o[°], α, β, r_hit, g_doğrudan)
+test('4b. g-faktörü: ek noktalar (a, θ_o, α, β) → (r, g), r_cam=1e4, denetçinin bağımsız izleyicisi (eşik 1e-7)', () => {
+  // (a, θ_o[°], α, β, r_hit, g_∞). Değerler denetçinin indep.mjs izleyicisiyle üretildi (ekran (x,y) yalnız modülün
+  // impactToRay eşlemesinden alındı; tetrad, geodezik denklemi ve integratör bağımsız). Son sütun: prograd (varsayılan true).
   const refs = [
-    [0.9, 80, -12, 0, 11.1339, 1.2499312],
-    [0.9, 80, -4, 0, 3.3089, 1.2653293],
-    [0.9, 80, 4, 0, 2.5972, 0.2431938],
-    [0.9, 80, 12, 0, 10.8607, 0.6491509],
-    [0.9, 80, -7, 2, 7.2283, 1.1902479],
-    [0.9, 80, 7, 2, 5.1695, 0.4550903],
-    [0, 85, -7, 0, 6.0672, 1.3330153],
-    [0, 85, 7, 0, 6.0672, 0.4848001],
-    [0.998, 60, -7, 0, 6.1902, 1.1965308],
-    [0.998, 60, 4, 2, 2.0333, 0.1817720],
-    [0.9, 120, -7, 0, 6.1862, 1.1964062],
+    [0.9, 80, -12, 0, 11.131984546, 1.250040820],
+    [0.9, 80, -4, 0, 3.308414860, 1.265519921],
+    [0.9, 80, 4, 0, 2.596182059, 0.243027294],
+    [0.9, 80, 12, 0, 10.858090536, 0.649070433],
+    [0.9, 80, -7, 2, 7.230766904, 1.190060650],
+    [0.9, 80, 7, 2, 5.169521589, 0.455088105],
+    [0, 85, -7, 0, 6.066025436, 1.333233748],
+    [0, 85, 7, 0, 6.066025436, 0.484706850],
+    [0.998, 60, -7, 0, 6.189200753, 1.196632824],
+    [0.998, 60, 4, 2, 2.032647455, 0.181656018],
+    [0.9, 120, -7, 0, 6.185144557, 1.196509923],
+    [0.9, 75, 12, 0, 10.861094164, 1.260573596, false], // retrograd disk
+    [0.9, 80, -7, 0, 6.206991152, 1.299221371],
+    [0.9, 80, 7, 0, 5.761331114, 0.499285021],
   ];
   let worstR = 0, worstG = 0;
-  for (const [a, thD, al, be, rRef, gRef] of refs) {
-    const cam = createCamera({ a, rCam: 1e6, thetaCam: deg(thD) });
-    const res = traceRay({ a, rOut: 30 }, cam.impactToRay(al, be), { rtol: 1e-12, atol: 1e-14 });
+  for (const [a, thD, al, be, rRef, gRef, pro = true] of refs) {
+    const cam = createCamera({ a, rCam: 1e4, thetaCam: deg(thD) });
+    const res = traceRay({ a, rOut: 30, prograde: pro }, cam.impactToRay(al, be), { rtol: 1e-12, atol: 1e-14 });
     assert.equal(res.hits.length, 1, `a=${a} (${al},${be})`);
     worstR = Math.max(worstR, Math.abs(res.hits[0].r - rRef));
     worstG = Math.max(worstG, Math.abs(res.hits[0].g - gRef));
   }
-  // retrograd disk: a=0.9, θ_o=75°, (12,0) → r=10.8637, g=1.2604122
-  const camR = createCamera({ a: 0.9, rCam: 1e6, thetaCam: deg(75) });
-  const rr = traceRay({ a: 0.9, rOut: 30, prograde: false }, camR.impactToRay(12, 0), { rtol: 1e-12, atol: 1e-14 });
-  worstR = Math.max(worstR, Math.abs(rr.hits[0].r - 10.8637));
-  worstG = Math.max(worstG, Math.abs(rr.hits[0].g - 1.2604122));
-  console.log(`  ${refs.length + 1} nokta: max |Δr| = ${fmt(worstR)} (referans 4 hane), max |Δg| = ${fmt(worstG)}  (r_cam=1e6)`);
-  assert.ok(worstR < 3e-4);
-  assert.ok(worstG < 1e-4);
+  console.log(`  ${refs.length} nokta: max |Δr| = ${fmt(worstR)}, max |Δg| = ${fmt(worstG)}  (r_cam=1e4)`);
+  assert.ok(worstR < 1e-7, `max Δr ${worstR}`);
+  assert.ok(worstG < 1e-7, `max Δg ${worstG}`);
 });
 
 // ---------------------------------------------------------------------------

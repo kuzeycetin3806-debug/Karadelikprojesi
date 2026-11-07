@@ -10,7 +10,7 @@ bloom/tonemapping gibi estetik işlemler bu modülde yoktur.
 | `integrators.js` | RK4 (sabit adım, + float32 öykünmeli), Dormand–Prince 5(4) (FSAL, adaptif), hata normu, adım denetleyicisi |
 | `camera.js` | Sonlu uzaklıktaki ZAMO kamerası: piksel → foton başlangıç koşulları; `impactToRay`, `bardeenRay` |
 | `raytracer.js` | `traceRay(params, ray, opts)` — sonlandırma, disk kesişimleri, g-faktörü, kaçış yönü, korunum hataları |
-| `../../tests/math/*.test.mjs` | node:test; `helpers.mjs` (kesin sapma kuadratürü vb.) |
+| `../../tests/math/*.test.mjs` | node:test; `helpers.mjs` (kesin sapma kuadratürü vb.); `audit-fixes.test.mjs` (denetim-2 düzeltmeleri: kaçış yönü, θ_cam=π/2, bütçe sınıflandırması) |
 | `../../tools/` | `shadow-scan.mjs` (gölge sınırı taraması), `float32-study.mjs` (f32↔f64 çalışması), `bench64.mjs` (64×64 süre) |
 
 Fizik formülleri `src/physics/kerr.js`'ten **import edilir** (`metricBL`, `frameDraggingOmega`, `horizonRadii`,
@@ -80,19 +80,33 @@ r_cam=50'de piksel açısından α := r_cam tanψ alınırsa λ/(−α sinθ_o) 
 | 1 | cosθ işaret değiştirdi ⇒ ekvator kesişimi kaydedilir; disk içindeyse `hits`'e eklenir; `hits.length ≥ maxDiskHits` | `'disk'` |
 | 2 | r < r₊ + `captureMargin` (1e-3) | `'captured'` |
 | 3 | r > `rEscape` ve ışın dışarı gidiyor (fiziksel p_r < 0) | `'escaped'` (+ `escape`) |
-| 4 | adım bütçesi / NaN / adım < 1e-14 | `'maxSteps'` (`reason`: `budget`/`nan`/`stuck`) |
+| 4 | adım bütçesi / NaN / adım < 1e-14 | `'maxSteps'` (`reason`: `budget`/`nan`/`stuck`); bütçe bitince `fate` = `'captured'`/`'escaped'` (analitik, §4.4) |
 
 `status` **sonlanma olayıdır**; ışın diski geçip sonra kaçabilir (`status:'escaped'`, `hits.length ≥ 1`). `maxDiskHits=1` opak disk,
 `>1` ikincil/üçüncül görüntüler. `hit.n` = kaçıncı ekvator geçişi (disk dışı geçişler de sayılır; n=1 birincil görüntü).
-Neden r₊+1e-3 güvenli: R(r₊) > 0 olduğundan ufka giren ışın geri dönemez.
+Neden r₊+1e-3 güvenli: (r₊, r₊+1e-3) aralığında R(r)=0 kökü (dönüm noktası) yoktur — en yakın dönüm noktası foton yörüngesi civarındadır ve
+r_ph,pro − r₊ ≥ 0.011 (a ≤ 0.998 için); bu aralığa giren ışın geri dönemez. (Yalnız "R(r₊) > 0" yeterli gerekçe değildir: R(r₊)>0 ufkun hemen
+dışında kök olmadığını değil, yalnızca ufkun kendisinde R'nin pozitif olduğunu söyler.)
 
 Disk: ince, ekvatoral, r_in = ISCO (`params.rIn`, varsayılan `iscoRadius`), r_out parametrik (varsayılan 20), `prograde`.
 `hit = {n, r, phi, lambda, g, gCam, tDelay, phiRaw, step}`; **g = `diskRedshiftFactor(1, a, r, λ_ışın, prograde)`**.
 Kesişim inceltme: `newton` (kısmi adım yeniden integrasyonu, f64 referans), `hermite` (kübik Hermite, GPU için), `linear`.
 
 Kaçış yönü: kalan Mino süresi σ_rem = ∫_r^∞ dr/√R = 1/r − c₂/(6r³) − c₃/(8r⁴) (`remainingMinoTime`; c₂ = 2(a²−aL) − K, c₃ = 2K,
-K = Q + (L−a)²); θ_∞ = θ + θ'σ + ½θ''σ², φ_∞ = φ + φ'σ. Hata: ekvatoral/düz durumda ≪ (b/r)³; genel durumda ~(b/r_esc)² rad.
+K = Q + (L−a)²). **İzleme zamanında** (τ = −σ, F = f(y) zaten `dir=−1` ile çarpılmış): θ_∞ = θ + F₁σ + ½θ''σ², φ_∞ = φ + F₂σ + ½φ''σ²,
+**θ'' = −F[4]** (F[4] = dp_θ/dτ), φ'' = (∂F₂/∂r)F₀ + (∂F₂/∂θ)F₁ (analitik; `escapeSecondDerivatives`). Hata ≈ (b/r_esc)³ rad
+(ölçüm: r_esc=300/600/1200/2400 → 4.9e-5/6.1e-6/7.5e-7/9.4e-8, eğim −3.0; a=0.9, θ_o=75°). Düz-uzay kontrolü: r=300, θ=60°, p_θ=0 → θ_∞=1.047471
+(eski, işareti ters formül 1.046924 veriyordu: ışın ekvatordan uzaklaşıyordu). Test: `audit-fixes.test.mjs` Ö1a–c.
 Çıktı: `escape = {theta, phi, thetaRaw, phiRaw, dir:[x,y,z]}` (θ ∈ [0,π], φ ∈ [0,2π); `dir` arka plan dokusu için).
+
+**θ_cam = π/2 (kamera tam disk düzleminde) — dejenere durum.** f64'te cos(π/2)=+6e-17, f32'de cos(fround(π/2))=−4.4e-8: kamera düzlemin bir
+yanında sayılır ve ilk adımda SAHTE bir işaret değişimi algılanırdı (r_cam ≤ r_out'ta ekranın yarısı r=r_cam'de "disk" vuruşu alıyor, r_cam > r_out'ta
+n etiketi 1 yerine 2 oluyor; yarı değişir f32↔f64). Düzeltme (`planeEps`, varsayılan f64 1e-12, f32 1e-6): |cosθ_cam| < ε ise (i) ilk adımda
+kameradan çıkış ve (ii) iki ucu da ε-bandında kalan adımlar (ekvatoral ışının gürültü geçişleri) kesişim sayılmaz. Test (`audit-fixes.test.mjs` Ö2,
+r_cam = 15 ve 50, f64 ve f32): sahte vuruş 0 (korumasız: 45/45), üst/alt ayna çiftlerinde durum ve n aynı, |Δr| f64 ≤ 4.9e-11, f32 ≤ 8.7e-5.
+**UI notu:** kameranın ince diskin düzlemine tam oturduğu θ_cam = 90° yine de kaçınılacak bir durumdur (disk kenar-üzerinden görünür, ışınlar
+yarı-düzlemsel/ayna simetrik, katman sıralaması belirsiz); eğim kaydırıcısını (örn. 89.5°–90.5°) bandından uzak tutun ya da θ_cam'e küçük bir
+ofset (≥1e-3 rad) ekleyin. GPU'ya θ_cam float32 olarak geçerse bu bant korumasını shader'da da uygulayın (|cosθ_cam| < 1e-6 ⇒ ilk adım kesişimi yok).
 
 ### 4.2 Adım kontrolü
 
@@ -107,6 +121,8 @@ Türevler zaten hesaplanmış olduğundan ek maliyet ≈ 1 sin + 1 sqrt.
   denetleyici h·clamp(0.9·err^(−1/5), 0.2, 5); ek olarak **h ≤ capFactor·h_nat** (0.5) — hata tahmini küçükken eksen/ufuk/kesişim
   yapısının atlanmasını önler. Varsayılan rtol=1e-10, atol=1e-12.
 - `integrator:'rk4'` (GPU kuralı): h = κ·h_nat(y); hata kestirimi yok; `maxSteps` = sabit bütçe N. `precision:'f32'`: her işlem `Math.fround`.
+- `stepRule:'nodrag'` (isteğe bağlı, **varsayılan değil**): φ' yerine L/sinθ − a sinθ (aP/Δ çerçeve sürüklenmesi terimi yok). φ döngüsel olduğundan
+  r,θ'ya geri beslenmez; a=0.998'de ufuk yakını adım boyunu gereksiz küçülten tek terim budur. Ölçüm §7 (bütçe yükü ~2× düşer ama p99 Δr bazı vakalarda 1.5–4.6× kötüleşir → önerilmez).
 
 ### 4.3 θ eksen tekilliği
 
@@ -118,6 +134,15 @@ Türevler zaten hesaplanmış olduğundan ek maliyet ≈ 1 sin + 1 sqrt.
   (L=1e-9'da adım 1e-14'ün altına iner, `stuck`). Bu yüzden |L| < axisEps ise L := 0 (yön hatası ≲ 2e-8 rad).
   L = 1e-6 ve 1e-3 doğrudan integre edilir (testte süreklilik doğrulanır; L=1e-6'da ~1000 ret).
 - GPU için: aynı yaklaşım (|L| < ε ⇒ L=0 ve `L==0` dalı) ya da sinθ'yı ε'dan aşağı kıstırma; kamera θ_cam'in kutuptan ≥ ~1e-3 rad uzak olması önerilir.
+
+### 4.4 Bütçe bitince analitik sınıflandırma (`fate`)
+
+Adım bütçesi biten (`status:'maxSteps'`, `reason:'budget'`) ışın için `fate` hareket sabitlerinden (L, Q: ışın başına tam) ve anlık r'den
+hesaplanır: **içe giden ışın için (r₊, r) aralığında R(r)=0 kökü (dönüm noktası) yoksa ışın yakalanmıştır**; kök varsa dönüp kaçar; dışa giden ışın
+zaten dönmüştür (kaçar). R(r₊) ≥ 0 ve R(r) > 0 olduğundan kök ancak R'nin aralıktaki yerel minimumu ≤ 0 ise vardır; R' = 4r³+2c₂r+c₃ r² terimsiz
+kübik olduğundan kritik noktalar kapalı formülle bulunur (`hasTurningPointBelow`). Sonuç adım sayısı N'den bağımsızdır.
+**Kural karşılaştırması:** "bütçe bitti → yakalandı" (shader'ın eski kuralı) fiziksel değil, **sayısal bir yaklaşımdır**: gölgeyi N'e bağlı biçimde
+dışa şişirir (Ö3c, §7). Analitik kural bunu kaldırır; kaçan sınıfta (fate='escaped') arka plan yönü bilinmez (ince bir kritik-eğri halkası).
 
 ## 5. Koşullanma (önemli sayısal bulgular)
 
@@ -151,9 +176,9 @@ iki-terimli formül 4.1178097e-2 (fark 4.44e-5 = üçüncü terim (128/3)/b³ = 
 a=0.998/85°: 2.5e-6 (hedef 1e-3). Kritik b: b_c(1−1e-6) yakalanır, b_c(1+1e-6) kaçar, r_min = 3.0025; r_ph'de bırakılan ışın 2 tur
 sonra |r−r_ph| ≤ 7e-10 (Schwarzschild, Kerr prograd/retrograd).
 
-**g-faktörü** (a=0.9, θ_o=80°): (α,β)=(−7,0): r_cam=1e6'da r=6.20791, g=1.2990860 (denetçi: 6.2080, 1.2990685); (+7,0): 5.76278, 0.4993867
-(5.7629, 0.4993970). 12 ek denetçi noktasında (a=0, 0.9, 0.998, retrograd dahil) maks |Δr| = 1.9e-4 (referans 4 hane), maks |Δg| = 3.7e-5.
-Fark r_cam sonlu olmasından (1e4: 1.5e-4 → 1e5: 2.6e-5 → 1e6: 1.8e-5) ve §5.2'deki f64 nicemlemesinden gelir.
+**g-faktörü** (a=0.9, θ_o=80°, **r_cam=1e4**, referans = denetçinin bağımsız izleyicisi): (α,β)=(−7,0): modül r=6.206991154, g=1.299221370 (ref 6.206991152, 1.299221371);
+(+7,0): 5.761331113, 0.499285020 (ref 5.761331114, 0.499285021). 14 noktada (a=0, 0.9, 0.998, retrograd dahil; ek 12 nokta aynı bağımsız izleyiciyle üretildi)
+maks |Δr| = 2.3e-8, maks |Δg| = 2.0e-9 (testte eşik 1e-7). Eski referans (D=1e7'den düz çizgiyle taşınmış, ~1e-4 kendi hatası) kaldırıldı.
 
 **RK4 yakınsama** (sabit Mino adımı, a=0.9, T=0.45): log-log eğim Hamilton 4.28 / 4.08, Carter 4.04 / 4.03 (beklenen 4). DP5: eğim 5.12.
 
@@ -183,10 +208,16 @@ başlangıç: p_r = sign·√R(r)/Δ   (Carter bağıntısı; kameradan gelen p_
 for i in 0 ..< N:                                  # N = 512 (kalite) / 256 (hızlı)
     k1 = F(y);  h = κ · 1/√((k1.r/(r−r₊))² + k1.θ² + (sinθ·k1.φ)²)      # κ = 0.05 / 0.10
     RK4 adımı (4 F değerlendirmesi); (cosθ_eski·cosθ_yeni < 0) ⇒ kübik Hermite ile r*, φ*; g = 1/(u^t(1−Ωλ)), λ = L
-    if r < r₊ + 1e-3: yakalandı;   if r > r_esc(≈300) && p_r < 0: kaçtı → (θ_∞, φ_∞) ekstrapolasyonu
-bütçe bitti → "yakalandı" gibi çiz (gölge kenarı kalınlaşır)
+    if r < r₊ + 1e-3: yakalandı;   if r > r_esc(≈300) && p_r < 0: kaçtı → (θ_∞, φ_∞) ekstrapolasyonu (θ''=−F[4], φ'' terimi dahil)
+bütçe bitti → ANALİTİK: içe giden ve (r₊, r)'de R(r)=0 kökü yok ⇒ yakalandı; aksi halde kaçar (§4.4)
+              [eski "bütçe bitti → yakalandı" kuralı = SAYISAL YAKLAŞIM; yalnız analitik kural yoksa, N spine bağlı seçilerek]
 ```
+`hit.g` sonsuzdaki gözlemciye göredir: g = 1/(uᵗ(1−Ωλ)). **Sonlu kamera için ekrana yazılan değer `hit.gCam` = g·ν_cam/ν_∞ olmalıdır**
+(ν_cam/ν_∞ = `ray.nuCamOverNuInf` = 1/E_ZAMO, kameradan ışın başına gelir). Fark r_cam=50'de gCam/g = 1.0205, g⁴'te (yoğunluk/parlaklık
+ölçeği) %8.4. gCam, bağımsız izleyiciyle 5e-12 içinde doğrulandı. Sözde-koddaki `g` yalnızca r_cam→∞ sınırında doğrudur.
 - **Δ'yı çarpan biçiminde** hesaplayın: (r − r₊)(r − r₋), r₋ = a²/r₊ (kerr.md §2.1); a≈1'de r²−2r+a² iptali sıfır verir.
+- **Bütçe** (`recommendedGpuBudget(a, analytic)`): analitik kuralla N=512 tüm spinlerde yeterli (a=0.998'de ρ_c hatası 4e-5…9e-5 M, N=256'da da 4e-5);
+  sayısal kuralla N spine bağlı: a<0.9 → 512, 0.9≤a<0.99 → 1024, a≥0.99 → 2048 (N=2048'de a=0.998 şişme 4e-4…8e-4 M).
 - **Ortalama maliyet** κ=0.05'te ≈ 94 adım ≈ 380 F değerlendirmesi/ışın (a=0.9); en kötü ışın ≈ 310 adım. Mobil için κ=0.10/N=256 (47 adım).
 - **Disk kesişiminde** yalnızca (r, φ, λ) gerekir; ISCO ≤ r ≤ r_out denetimi ve g için u^t, Ω kapalı formülleri (kerr.md §2.7) kullanılır.
 - **Opak disk** için ilk kesişimde dur (`maxDiskHits=1`); ikincil görüntüler için N≥512 ve döngüde devam.
@@ -194,9 +225,19 @@ bütçe bitti → "yakalandı" gibi çiz (gölge kenarı kalınlaşır)
 **float32 riskleri:**
 1. *Biçim*: Carter/u_r durumu (~r²) f32'de kullanılamaz (uyuşmazlık %3.3, Δr medyan 1.8e-2 vs Hamilton %0.0, 1.5e-5). p_r kullanın.
 2. *Büyük r_cam*: b² belirsizliği ≈ 2r²·6e-8. Gölge ρ_c f32−f64 hatası: r_cam=30: 2.7e-5, 50: 8.5e-5, 200: 1.5e-3, 500: 5.4e-3, 1000: 3.9e-2 (a=0.9).
-   Öneri r_cam ≲ 200; daha uzakta ışını CPU/vertex aşamasında f64 ile r≈50–100'e taşıyın.
-3. *Adım bütçesi*: kritik eğriye yakın ışınlar ~ln(1/δρ) tur harcar; gölge şişmesi (κ=0.05, a=0.9) N=256: ort 0.22 M, N=512: 8.6e-4 M, N=1024: ~0
-   (maks 0.6 → 3.9e-3 → 8.5e-5); a=0.998'de N=512'de bile 0.1 M. Kenar yumuşatma/anti-aliasing bunu maskeler.
+   **Piksel cinsinden** (sabit FOV: 1 piksel ≈ r_cam·FOV/H·M; 40° FOV, 1080 piksel için ≈ r_cam·6.4e-4 M): r_cam=50 → 8.5e-5 M ≈ 0.003 piksel;
+   200 → 1.5e-3 M ≈ 0.012; 500 → 5.4e-3 ≈ 0.017; 1000 → 3.9e-2 ≈ 0.06 piksel. Yani sabit FOV'da r_cam ≲ 1000 görsel olarak sorunsuzdur ("r_cam ≲ 200 şart"
+   ifadesi fazla katıydı); sorun yalnızca güçlü yakınlaştırmada (FOV küçülünce piksel başına M azalır) önem kazanır. "Işını CPU'da r≈50–100'e taşıyın"
+   her piksel ve her kare için uygulanamaz; kalıcı çözüm p_r'yi R(r)'den kurmak (§9, gelecek iş).
+3. *Adım bütçesi*: kritik eğriye yakın ışınlar ~ln(1/δρ) tur harcar. "Bütçe bitti → yakalandı" bir **sayısal yaklaşımdır** ve gölgeyi şişirir
+   (κ=0.05, f32−f64 ρ_c, 12 yön, en çok/ortalama): a=0.9/85°: N=256 ort 0.22 M, N=512 4.8e-3/9.6e-4 M, N=1024 5.6e-5; **a=0.998: N=512 60°: 0.124/0.024 M,
+   85°: 0.154/0.034 M (≈4–5 piksel, 1080p/40°/r_cam=50); N=1024: 0.015–0.021 M; N=2048: 4e-4–8e-4 M**. En kötü yön χ≈191° (Kerr'in yassı prograd kenarı).
+   Neden: ufuk yakınında çerçeve sürüklenmesi (φ' ∝ aP/Δ) adımı belirler, oysa φ döngüseldir. **Analitik sınıflandırma (§4.4) bu şişmeyi N=512'de
+   0.124→4.3e-5 M (×2860, 60°) ve 0.154→7.8e-5 M (×1980, 85°) düşürür** (f32 düzeyi; N=256'da da 4.3e-5). Bütçesi biten pikseller yine N adım harcar
+   (a=0.998/60°, 40×40: 32 piksel) ama doğru sınıflanır (hepsi DP5 ile uyumlu).
+   `stepRule:'nodrag'` (isteğe bağlı): a=0.998/60° en kötü adım 512→229–231, bütçeyi bitiren piksel 32→0 (sayısal kuralla N=512'de bile gölge hatası 0.124→4.3e-4);
+   ama p99 Δr 7.9e-2→1.2e-1 (a=0.998/60°), 6.3e-2→2.9e-1 (a=0.9/75°), 1.06→0.64 (a=0.998/85°), Δg p99 1.5e-3→4.1e-3 (a=0.9/75°): kritik halka yakınında
+   sürüklenme terimi adımı kendiliğinden inceltiyormuş → varsayılan yapılmadı.
 4. *Hermite şart*: doğrusal kesişim r'de ~3e-3 hata (görünür halka/kenar sorunları) verir.
 5. *p_r' içindeki götürme*: terimler ~2r mertebesinde birbirini götürür (r=20'de mutlak hata ~r·ε₃₂); testlerde baskın değil ama r_cam büyüdükçe 2. maddeye dönüşür.
 6. *sin/cos*: GPU'da `sin` büyük argümanda zayıf; θ ∈ (0,π) küçük kalır, φ yalnızca toplanır (sin/cos gerekmez) — φ'yi toplayın, kullanılacağı yerde indirgeyin (`mod 2π`).
@@ -223,7 +264,8 @@ a=0.998/θ=60°: 349 / 154 / 1016 / 93 / 141 / 80 ms (aynı sıra).
 
 - a = 1 tam değerinde `diskRedshiftFactor`/ISCO fizik modülünde r = M noktasında tanımsızdır; render için a ≤ 0.998.
 - Çok küçük 0<|L|<1e-7 snap ile L=0 yapılır (yön hatası ≲ 2e-8 rad). Kutba çok yakın kamera (θ_cam < ~1e-3) desteklenmez.
-- Kaçış yönü hatası ≈ (b/r_esc)² rad (genel durum, φ'' ihmal); varsayılan r_esc=1e4'te ~5e-7 rad, shader r_esc=300'de medyan 3.7e-4 rad.
+- Kaçış yönü hatası ≈ (b/r_esc)³ rad (θ'' ve φ'' dahil, Ö1 düzeltmesi sonrası); r_esc=300'de en kötü 5e-5–2e-4 rad (b≲20), r_esc=1e4'te < 1e-8.
+- θ_cam = π/2 tam değeri dejenere (bkz. §4.1 UI notu); a=1 ve θ_cam < 1e-3 desteklenmiyor.
 - Kerr'de ISCO altı (r < r_isco) disk modeli yoktur; dairesel yörünge fonksiyonları r_ph altında RangeError verir (r_in ≥ ISCO sürece sorun yok).
 - Zaman gecikmesi `tDelay` koordinat zamanıdır (BL t); r_cam büyükken büyüktür, göreli farklar anlamlıdır.
-- Olası iyileştirme: p_r'yi durum olarak taşımak yerine R(r)'den cebirsel türetmek (kısıt kendiliğinden sağlanır; dönüm noktasında işaret çevirme gerekir) — §5.2'deki nicemleme sınırını kaldırabilir. Henüz uygulanmadı/ölçülmedi.
+- **Gelecek iş:** p_r'yi durum olarak taşımak yerine R(r)'den cebirsel türetmek (p_r = ±√R/Δ; kısıt kendiliğinden sağlanır, dönüm noktasında işaret çevirme gerekir) — §5.2'deki nicemleme sınırını (2r²ε) kaldırır ve büyük r_cam / yakınlaştırma için asıl çözümdür. Henüz uygulanmadı/ölçülmedi.
