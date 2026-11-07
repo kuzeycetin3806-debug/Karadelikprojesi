@@ -31,14 +31,17 @@ function stats(v) {
   };
 }
 
-/** 'maxSteps' (bütçe bitti) shader'da "yakalandı" gibi çizilir. */
-const shaderClass = (st) => (st === 'maxSteps' ? 'captured' : st);
+/**
+ * 'maxSteps' (bütçe bitti): rule 'numeric' → "yakalandı" (sayısal yaklaşım); rule 'analytic' → res.fate.
+ */
+const shaderClass = (res, rule = 'numeric') =>
+  res.status === 'maxSteps' ? (rule === 'analytic' && res.fate ? res.fate : 'captured') : res.status;
 
 /**
  * Piksel ızgarası üzerinde f32 adayını f64 referansıyla karşılaştırır.
  * @returns {object} istatistikler
  */
-export function runStudy({ a, thetaDeg, rCam = 50, grid = 40, halfWidth = 14, rOut = 20, candidate, refOpts = {}, ref }) {
+export function runStudy({ a, thetaDeg, rCam = 50, grid = 40, halfWidth = 14, rOut = 20, candidate, refOpts = {}, ref, budgetRule = 'numeric' }) {
   const th = deg(thetaDeg);
   const cam = createCamera({ a, rCam, thetaCam: th, fovY: 2 * Math.atan(halfWidth / rCam), width: grid, height: grid });
   const params = { a, rOut };
@@ -53,7 +56,7 @@ export function runStudy({ a, thetaDeg, rCam = 50, grid = 40, halfWidth = 14, rO
       nTot++;
       stepSum += C.steps; stepMax = Math.max(stepMax, C.steps);
       if (C.status === 'maxSteps') nMaxSteps++;
-      const rs = shaderClass(R.status), cs = shaderClass(C.status);
+      const rs = shaderClass(R, budgetRule), cs = shaderClass(C, budgetRule);
       if (rs !== cs) mismatch++;
       if (R.status === 'escaped' && C.status === 'escaped') {
         const u = R.escape.dir, w = C.escape.dir;
@@ -81,14 +84,14 @@ export function runStudy({ a, thetaDeg, rCam = 50, grid = 40, halfWidth = 14, rO
 /**
  * Gölge sınırı (ρ_c) f32 adayı − f64 referansı. Aynı kamera (impactToRay, r_cam), 12 doğrultu.
  */
-export function shadowErrorF32({ a, thetaDeg, rCam = 50, candidate, nAngles = 12, iters = 26 }) {
+export function shadowErrorF32({ a, thetaDeg, rCam = 50, candidate, nAngles = 12, iters = 26, budgetRule = 'numeric' }) {
   const th = deg(thetaDeg);
   const cam = createCamera({ a, rCam, thetaCam: th });
   const errs = [];
   for (let k = 0; k < nAngles; k++) {
     const chi = ((k + 0.37) * 2 * Math.PI) / nAngles;
     const ref = shadowRadiusAlong(cam, { a }, chi, { iters, rtol: 1e-10, atol: 1e-12 });
-    const f32 = shadowRadiusAlong(cam, { a }, chi, { iters, ...candidate });
+    const f32 = shadowRadiusAlong(cam, { a }, chi, { iters, budgetRule, ...candidate });
     errs.push(f32 - ref);
   }
   return { errs, max: Math.max(...errs.map(Math.abs)), mean: errs.reduce((x, y) => x + y, 0) / errs.length };

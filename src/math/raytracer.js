@@ -9,7 +9,9 @@
  *   1. θ = π/2 kesişimi → (disk sınırları içindeyse) kayıt; `maxDiskHits` dolunca status = 'disk'
  *   2. r < r₊ + captureMargin                      → 'captured'
  *   3. r > rEscape ve ışın dışarı gidiyor            → 'escaped' (+ asimptotik yön)
- *   4. adım bütçesi bitti / NaN / adım sıfırlandı     → 'maxSteps' (reason alanı ayrıntı verir)
+ *   4. adım bütçesi bitti / NaN / adım sıfırlandı     → 'maxSteps' (reason alanı ayrıntı verir).
+ *      Bütçe bitince `fate` = ANALİTİK sınıf ('captured' | 'escaped'): içe giden ışın için (r₊, r) aralığında
+ *      R(r)=0 kökü yoksa yakalanmıştır (geodesic.hasTurningPointBelow); sayıdan (N) bağımsızdır.
  * `status` SONLANMA olayını verir; ekvator kesişimleri `hits` dizisindedir (ışın disk geçip sonra
  * kaçmış/yakalanmış olabilir → status 'escaped', hits.length ≥ 1).
  *
@@ -54,7 +56,16 @@ export const DEFAULT_OPTIONS = Object.freeze({
   crossing: undefined, // 'newton' | 'hermite' | 'linear' (varsayılan: f64'te newton, f32'de hermite)
   trackMax: false, // her adımda |ΔH|, |ΔQ| maksimumunu izle
   axisEps: 1e-7, // |L| < axisEps ise L = 0 (tam eksenel ışın) kabul edilir: kutup geçişi sertliğini önler
+  planeEps: undefined, // |cosθ_cam| < planeEps ⇒ kamera disk düzleminde (dejenere): kameranın kendisi kesişim sayılmaz. Varsayılan: f64 1e-12, f32 1e-6
+  stepRule: 'full', // 'full' | 'nodrag': adım kuralında çerçeve sürüklenmesi (aP/Δ) terimini dışla (yalnız rk4 için anlamlı)
 });
+
+/** GPU (f32 RK4, κ=0.05) için önerilen adım bütçesi, spine bağlı. Bkz. README §7 (ölçümler). */
+export function recommendedGpuBudget(a) {
+  if (a >= 0.99) return { kappa: 0.05, maxSteps: 2048 };
+  if (a >= 0.9) return { kappa: 0.05, maxSteps: 1024 };
+  return { kappa: 0.05, maxSteps: 512 };
+}
 
 /** Disk modeli varsayılanları: r_in = ISCO, r_out = 20 M. */
 export function diskDefaults(a, prograde = true) {
@@ -131,9 +142,25 @@ export function traceRay(params, ray, opts = {}) {
   const kappaF = fr32(o.kappa);
   const kappaFarF = fr32(o.kappaFar ?? o.kappa);
 
+  // 'nodrag': φ' yerine sinθ·(L/sin²θ − a) = L/sinθ − a sinθ (aP/Δ çerçeve sürüklenmesi terimi yok). φ döngüsel
+  // olduğundan r, θ dinamiğine geri beslenmez; ufuk yakınında adımı gereksiz küçülten tek terim budur.
+  const noDrag = o.stepRule === 'nodrag';
+  const vphOf = noDrag
+    ? (yy, F) => {
+        const s = Math.sin(yy[1]);
+        return (L === 0 ? 0 : L / (s * s)) - a;
+      }
+    : (yy, F) => F[2];
   const hNat = f32
-    ? (yy, F) => G.naturalStepF32(rpF, yy[0], yy[1], F[0], F[1], F[2])
-    : (yy, F) => G.naturalStep(rp, yy[0], yy[1], F[0], F[1], F[2]);
+    ? (yy, F) => G.naturalStepF32(rpF, yy[0], yy[1], F[0], F[1], vphOf(yy, F))
+    : (yy, F) => G.naturalStep(rp, yy[0], yy[1], F[0], F[1], vphOf(yy, F));
+
+  // Kamera disk düzleminde (θ_cam = π/2): f64'te cos = +6e-17, f32'de −4.4e-8 → ilk adımda SAHTE işaret değişimi.
+  const planeEps = o.planeEps ?? (f32 ? 1e-6 : 1e-12);
+  const camInPlane = Math.abs(Math.cos(y0[1])) < planeEps;
+  /** Sahte kesişim: dejenere kamerada (i) ilk adım kameradan çıkış, (ii) her iki uç da ε-bandında (gürültü). */
+  const spurious = (cA, cB, stepNo) =>
+    camInPlane && ((stepNo === 1 && Math.abs(cA) < planeEps) || (Math.abs(cA) < planeEps && Math.abs(cB) < planeEps));
 
   const hits = [];
   let planeCrossings = 0;
@@ -247,7 +274,10 @@ export function traceRay(params, ray, opts = {}) {
       ws.k1.set(ws.k7); // FSAL
       h = nextStepSize(h, en);
       if (!(yn[0] === yn[0]) || !(yn[1] === yn[1])) { status = 'maxSteps'; reason = 'nan'; break; }
-      if (Math.cos(yA[1]) * Math.cos(yn[1]) < 0) recordCrossing(hUsed, kA, ws.k1, yn);
+      {
+        const cA = Math.cos(yA[1]), cB = Math.cos(yn[1]);
+        if (cA * cB < 0 && !spurious(cA, cB, steps)) recordCrossing(hUsed, kA, ws.k1, yn);
+      }
       y.set(yn);
     } else {
       const far = y[0] > o.rFar;
@@ -259,7 +289,10 @@ export function traceRay(params, ray, opts = {}) {
       steps++;
       if (!(yn[0] === yn[0]) || !(yn[1] === yn[1])) { status = 'maxSteps'; reason = 'nan'; break; }
       f(yn, ws.k1);
-      if (Math.cos(yA[1]) * Math.cos(yn[1]) < 0) recordCrossing(hh, kA, ws.k1, yn);
+      {
+        const cA = Math.cos(yA[1]), cB = Math.cos(yn[1]);
+        if (cA * cB < 0 && !spurious(cA, cB, steps)) recordCrossing(hh, kA, ws.k1, yn);
+      }
       y.set(yn);
     }
 
@@ -279,12 +312,13 @@ export function traceRay(params, ray, opts = {}) {
     if (y[0] > rEsc && y[3] < 0) {
       status = 'escaped';
       // Asimptotik yön: kalan Mino süresi σ_rem = ∫_r^∞ dr/√R (remainingMinoTime, O(r⁻⁵) hata).
-      // θ için 2. mertebe (θ'' = F[4]), φ için 1. mertebe (hata ~ (b/r_esc)² rad; ekvatoral/düz
-      // durumda φ'=L sabit olduğundan hata ≪ bu).
+      // İZLEME zamanında (dir = −1): θ'' = −F[4] (F[4] = dp_θ/dτ), φ'' = ∂F₂/∂r·F₀ + ∂F₂/∂θ·F₁
+      // (geodesic.escapeSecondDerivatives). Her ikisi de 2. mertebe → kalan hata ≈ (b/r_esc)³ rad.
       const F = ws.k1;
       const sr = G.remainingMinoTime(a, L, Q, y[0]);
-      const thInf = y[1] + F[1] * sr + 0.5 * F[4] * sr * sr;
-      const phInf = y[2] + F[2] * sr;
+      const d2 = G.escapeSecondDerivatives(a, L, y[0], y[1], F);
+      const thInf = y[1] + F[1] * sr + 0.5 * d2.thetaPP * sr * sr;
+      const phInf = y[2] + F[2] * sr + 0.5 * d2.phiPP * sr * sr;
       const ang = G.canonicalAngles(thInf, phInf);
       escape = {
         theta: ang.theta,
@@ -297,10 +331,20 @@ export function traceRay(params, ray, opts = {}) {
     }
   }
 
+  // Bütçe bitti: ANALİTİK sınıf. Trace yönünde içe gidiyorsa (F[0] < 0) ve (r₊, r)'de R kökü yoksa → yakalandı.
+  // (GPU'da "bütçe bitti → yakalandı" yalnız bir SAYISAL YAKLAŞIMDIR; bu kural onu hareket sabitlerinden düzeltir.)
+  let fate;
+  if (status === 'maxSteps' && reason === 'budget') {
+    // ws.k1 son kabul edilen durumun türevidir (rk4: f(yn); dp45: FSAL)
+    const inward = ws.k1[0] < 0;
+    fate = inward && !G.hasTurningPointBelow(a, L, Q, y[0]) ? 'captured' : 'escaped';
+  }
+
   const dEnd = diag(y);
   return {
     status,
     reason,
+    fate,
     hits,
     escape,
     steps,

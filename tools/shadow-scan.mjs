@@ -8,9 +8,15 @@ import { createCamera } from '../src/math/camera.js';
 import { traceRay } from '../src/math/raytracer.js';
 import { shadowBoundary } from '../src/physics/kerr.js';
 
-/** 'maxSteps' (kritik yörüngeye çok yakın) ve 'captured' → içeride; 'escaped'/'disk' → dışarıda. */
-export function isInside(status) {
-  return status === 'captured' || status === 'maxSteps';
+/**
+ * 'captured' → içeride; 'escaped'/'disk' → dışarıda. 'maxSteps' (bütçe bitti; kritik yörüngeye çok yakın):
+ *   rule 'numeric'  (varsayılan; shader'ın eski kuralı, SAYISAL YAKLAŞIM): içeride sayılır → gölge N'e bağlı şişer
+ *   rule 'analytic' : res.fate (R(r)=0 kökü (r₊, r)'de var mı?) ile sınıflanır → N'den bağımsız
+ */
+export function isInside(status, res, rule = 'numeric') {
+  if (status === 'captured') return true;
+  if (status === 'maxSteps') return rule === 'analytic' && res?.fate ? res.fate === 'captured' : true;
+  return false;
 }
 
 /**
@@ -28,7 +34,7 @@ export function shadowRadiusAlong(cam, params, chi, opts = {}) {
     const al = rho * Math.cos(chi), be = rho * Math.sin(chi);
     const ray = opts.mapping === 'bardeen' ? cam.bardeenRay(al, be) : cam.impactToRay(al, be);
     const res = traceRay({ ...params, disk: false }, ray, opts);
-    return isInside(res.status);
+    return isInside(res.status, res, opts.budgetRule ?? 'numeric');
   };
   if (!inside(lo)) throw new Error(`ρ=${lo} içeride değil (χ=${chi})`);
   if (inside(hi)) throw new Error(`ρ=${hi} dışarıda değil (χ=${chi})`);

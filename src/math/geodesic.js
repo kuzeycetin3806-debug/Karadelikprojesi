@@ -22,8 +22,11 @@
  *   "hamilton": y = [r, θ, φ, p_r, p_θ, t]            (kanonik momentumlar; H izlenebilir)
  *   "carter"  : y = [r, θ, φ, u_r, u_θ, t],  u_r = dr/dσ = Δ p_r, u_θ = dθ/dσ = p_θ,
  *               du_r/dσ = R'(r)/2,  du_θ/dσ = Θ'(θ)/2   (Carter potansiyelleri; H ≡ 0 sabit).
- *   Carter biçimi float32 için çok daha sağlamdır (p_r' içinde ~2r mertebesinde terimler birbirini
- *   götürür; Carter biçiminde götürme yok). Ayrıntı: src/math/README.md.
+ *   float32/GPU İÇİN HAMİLTON BİÇİMİ kullanılmalıdır (ölçüm, tests/math/float32.test.mjs 6c): Carter biçiminde
+ *   durum değişkeni u_r = dr/dσ ~ r² olduğundan f32 göreli hassasiyeti mutlak hataya r²·ε₃₂ olarak yansır
+ *   (sınıflandırma uyuşmazlığı %3.3, Δr medyanı 1.8e-2); Hamilton'da p_r ≈ 1 (uyuşmazlık %0.0, Δr medyanı 1.5e-5).
+ *   p_r' içindeki ~2r mertebesindeki götürme (r ≲ 50'de) ölçümde baskın değildir. Carter biçimi yalnız f64
+ *   çapraz kontrol (H ≡ 0 sabiti) içindir. Ayrıntı: src/math/README.md §5, §7.
  *
  * Durum sırası SABİT: [r, θ, φ, X, Y, t]; t en sonda → hata denetiminden kolayca dışlanır.
  *
@@ -213,7 +216,7 @@ export function makeRhsHamiltonF32(a, L, dir = 1) {
   };
 }
 
-/** Carter biçiminin float32 öykünmesi (E = 1). Önerilen GPU biçimi. */
+/** Carter biçiminin float32 öykünmesi (E = 1). GPU için ÖNERİLMEZ (ölçümler: Hamilton ≫ Carter, bkz. dosya başı); karşılaştırma içindir. */
 export function makeRhsCarterF32(a, L, Q, dir = 1) {
   const fr = Math.fround;
   const { rp, rm } = horizons(a);
@@ -237,6 +240,61 @@ export function makeRhsCarterF32(a, L, Q, dir = 1) {
     out[4] = dir * fr((hasL ? fr(fr(L2 * c) / fr(s2 * s)) : 0) - fr(A2 * fr(s * c)));
     out[5] = dir * fr(fr(A * fr(LF - fr(A * s2))) - fr(r2a2 * PD));
   };
+}
+
+/**
+ * Kaçış ekstrapolasyonu için İZLEME zamanında (τ = −σ, dir = −1) ikinci türevler (E = 1).
+ * F = f(y) (rhs çıktısı; zaten `dir` ile çarpılmış). Hamilton ve Carter biçimlerinde aynıdır.
+ *   θ'' = d(F₁)/dτ = −dp_θ/dτ = −F₄            (F₄ = dp_θ/dτ, yani `θ'' = −F[4]`)
+ *   φ'' = (∂F₂/∂r) F₀ + (∂F₂/∂θ) F₁,   F₂ = dir (L/sin²θ − a − a P/Δ),  P = aL − (r²+a²)
+ *       ∂F₂/∂r = dir · a (2r/Δ + P Δ'/Δ²),   ∂F₂/∂θ = −dir · 2 L cosθ / sin³θ.
+ * (Not: `dir` işareti F içinde olduğundan türevlerde de aynen taşınır; burada dir = −1 varsayılır.)
+ * L = 0 ise θ-terimi yoktur. GPU'da aynı ifade float32'de değerlendirilebilir (düzeltme küçüktür).
+ */
+export function escapeSecondDerivatives(a, L, r, theta, F, dir = -1) {
+  const { rp, rm } = horizons(a);
+  const D = (r - rp) * (r - rm);
+  const P = a * L - (r * r + a * a);
+  const s = Math.sin(theta), c = Math.cos(theta);
+  const dF2dr = dir * a * ((2 * r) / D + (P * 2 * (r - 1)) / (D * D));
+  const dF2dth = L === 0 ? 0 : (-dir * 2 * L * c) / (s * s * s);
+  return { thetaPP: -F[4], phiPP: dF2dr * F[0] + dF2dth * F[1] };
+}
+
+/**
+ * ANALİTİK SINIFLANDIRMA (adım bütçesi bittiğinde): (r₊, r) aralığında R(r) = 0 kökü (dönüm noktası) var mı?
+ * R(r₊) = (r₊²+a²−aL)² ≥ 0 ve R(r) > 0 olduğundan kök çifti ancak R'nin aralıktaki bir yerel minimumu
+ * ≤ 0 ise vardır. R = r⁴ + c₂r² + c₃r + c₄ ⇒ R' = 4r³ + 2c₂r + c₃ (r² terimi yok → bastırılmış kübik, kapalı
+ * çözüm). Aralığa düşen kritik noktalarda R'ye bakılır. İçe giden ışın için: kök yoksa ufka girer (YAKALANDI),
+ * varsa dönüm noktasından dışarı döner (KAÇAR). Dışa giden ışın zaten dönmüştür (KAÇAR).
+ * Sonuç hareket sabitlerine (L, Q: ışın başına bir kez) ve anlık r'ye bağlıdır → adım sayısı N'den bağımsızdır.
+ * @returns {boolean} true ⇒ (r₊, r) içinde R ≤ 0 olan nokta (dönüm noktası) var
+ */
+export function hasTurningPointBelow(a, L, Q, r) {
+  const { rp } = horizons(a);
+  if (!(r > rp)) return false;
+  const K = Q + (L - a) * (L - a);
+  const c2 = 2 * (a * a - a * L) - K;
+  const c3 = 2 * K;
+  const R = (x) => radialPotential(a, 1, L, Q, x);
+  let minR = Math.min(R(rp), R(r));
+  // R' = 4 (x³ + p x + q) = 0,  p = c2/2, q = c3/4
+  const p = c2 / 2, q = c3 / 4;
+  const disc = -(4 * p * p * p + 27 * q * q);
+  const crit = [];
+  if (disc > 0) {
+    // 3 gerçek kök (trigonometrik çözüm; p < 0)
+    const m = 2 * Math.sqrt(-p / 3);
+    const arg = Math.max(-1, Math.min(1, ((3 * q) / (p * m))));
+    const phi = Math.acos(arg) / 3;
+    for (let k = 0; k < 3; k++) crit.push(m * Math.cos(phi - (2 * Math.PI * k) / 3));
+  } else {
+    // 1 gerçek kök (Cardano)
+    const sq = Math.sqrt(Math.max(0, (q * q) / 4 + (p * p * p) / 27));
+    crit.push(Math.cbrt(-q / 2 + sq) + Math.cbrt(-q / 2 - sq));
+  }
+  for (const x of crit) if (x > rp && x < r) minR = Math.min(minR, R(x));
+  return minR <= 0;
 }
 
 /**
