@@ -3,6 +3,8 @@
  *   node tests/ui/ui-check.mjs [--out=/tmp/karadelik-ui] [--only=shots|logic|shell]
  * - Kontroller → setParams, fare/dokunmatik/klavye kamera etkisi, bilgi ekranı ↔ physics, konsol hatası.
  * - 375×812, 768×1024, 1024×768, 1440×900 ekran görüntüleri.
+ * - Basit/Gelişmiş mod, … menüsü, Kılavuz/Gizlilik, bağımsız sayfalar, imza, Apple cihaz profilleri (Chromium + Playwright devices; WebKit motoru yok).
+ *   --apple-out=/tmp/karadelik-apple  --only=apple|simple|docs
  */
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -21,6 +23,8 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/
 const OUT = args.out || '/tmp/karadelik-ui';
 const ONLY = args.only || '';
 const PWA_OUT = args['pwa-out'] || '/tmp/karadelik-pwa';
+const APPLE_OUT = args['apple-out'] || '/tmp/karadelik-apple';
+fs.mkdirSync(APPLE_OUT, { recursive: true });
 fs.mkdirSync(OUT, { recursive: true });
 fs.mkdirSync(PWA_OUT, { recursive: true });
 
@@ -39,16 +43,13 @@ const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ headless: true, args: CHROMIUM_ARGS });
 const consoleErrors = [];
 
-async function openPage({ width, height, touch = false }) {
-  const ctx = await browser.newContext({
-    viewport: { width, height },
-    deviceScaleFactor: 1,
-    hasTouch: touch,
-    isMobile: touch,
-    reducedMotion: 'reduce', // ekran görüntüleri kararlı olsun
-  });
+async function openPage({ width, height, touch = false, device = null, dpr = 1, colorScheme = 'dark', init = null }) {
+  const ctx = await browser.newContext(device
+    ? { ...device, deviceScaleFactor: dpr, reducedMotion: 'reduce', colorScheme }
+    : { viewport: { width, height }, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch, reducedMotion: 'reduce', colorScheme });
+  if (init) await ctx.addInitScript(init);
   const page = await ctx.newPage();
-  const tag = `${width}x${height}`;
+  const tag = device ? (device.__name || 'device') : `${width}x${height}`;
   page.on('console', (m) => {
     if (m.type() === 'error' || m.type() === 'warning') {
       // SwiftShader/Chromium'un okuma uyarısı: test kodundan değil; yine de listele
@@ -75,6 +76,12 @@ async function openPage({ width, height, touch = false }) {
   return { ctx, page };
 }
 
+/** "…" menüsünü açıp öğeye tıklar (menü öğeleri: guide | about | privacy | fullscreen | install). */
+async function openMenuItem(page, id) {
+  if (!(await page.isVisible('#app-menu'))) await page.click('#menu-toggle');
+  await page.waitForSelector(`#app-menu [data-menu=${id}]`, { state: 'visible', timeout: 10000 });
+  await page.click(`#app-menu [data-menu=${id}]`);
+}
 const P = (page) => page.evaluate(() => window.__karadelik.renderer.getParams());
 const ST = (page) => page.evaluate(() => window.__karadelik.renderer.getStats());
 async function settleCamera(page) {
@@ -114,6 +121,8 @@ async function logicDesktop() {
   const { ctx, page } = await openPage({ width: 1440, height: 900 });
   await cheap(page);
   await page.evaluate(() => window.__karadelik.ui.open());
+  // tüm kontroller Gelişmiş modda (Basit mod ayrı denetlenir: simpleChecks)
+  await page.click('label[for="ui-mode-advanced"]');
   await settleRender(page, 800, 20000);
 
   // --- bilgi ekranı ↔ physics
@@ -511,41 +520,48 @@ async function shellChecks() {
   check('index.html: iOS meta, theme-color ×2, description, og, viewport-fit=cover', head.capable === 'yes' && head.bar === 'black-translucent' && head.title && head.themes === 2 && head.desc && head.og && /viewport-fit=cover/.test(head.vp));
   check('dev sunucuda service worker kaydedilmedi', (await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((r) => r.length))) === 0);
 
-  // yardım: ? ile aç, Esc ile kapat
+  // kılavuz (eski Yardım ile birleşti): ? ile Kontroller bölümü açılır, Esc ile kapanır
   await page.keyboard.press('?');
-  await page.waitForSelector('#dlg-help[open]', { timeout: 10000 });
-  check('? → yardım penceresi açılır', await page.isVisible('#dlg-help'));
-  check('yardım: fare/dokunmatik/klavye bölümleri', (await page.$$eval('#dlg-help .help-group h3', (e) => e.map((x) => x.textContent))).join() === 'Fare,Dokunmatik,Klavye');
+  await page.waitForSelector('#dlg-guide[open]', { timeout: 10000 });
+  check('? → kılavuz penceresi açılır', await page.isVisible('#dlg-guide'));
+  check('? → kılavuz Kontroller bölümüne kaydırır', await page.evaluate(() => { const b = document.querySelector('#dlg-guide .dlg-body').getBoundingClientRect(); const t = document.getElementById('guide-controls').getBoundingClientRect(); return t.top >= b.top - 2 && t.top < b.top + b.height * 0.5; }));
+  check('kılavuz: fare/dokunmatik/klavye alt başlıkları', (await page.$$eval('#guide-camera h4', (e) => e.map((x) => x.textContent))).join() === 'Fare,Dokunmatik ekran,Klavye');
+  check('kılavuz: 8 bölüm (başlarken…sorun giderme), tekrar eden Yardım penceresi yok', (await page.$$eval('#dlg-guide .doc-sec > h3', (e) => e.map((x) => x.textContent))).join('|') === 'Başlarken|Kamerayı kontrol etme|Hazır ayarlar|Kontroller|Ne görüyorsunuz?|Performans ipuçları|Uygulamayı yükleme|Sorun giderme' && (await page.$('#dlg-help')) === null);
+  check('kılavuz: “Tam sayfa aç” bağlantısı kilavuz.html', (await page.getAttribute('#dlg-guide a.dlg-full', 'href')).endsWith('kilavuz.html'));
   const th0 = (await P(page)).thetaCam;
   await page.keyboard.press('ArrowUp');
   check('diyalog açıkken ok tuşu kamerayı oynatmaz', (await P(page)).thetaCam === th0);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !document.getElementById('dlg-help').open, null, { timeout: 10000 });
-  check('Esc yardım penceresini kapatır', !(await page.isVisible('#dlg-help')));
+  await page.waitForFunction(() => !document.getElementById('dlg-guide').open, null, { timeout: 10000 });
+  check('Esc kılavuz penceresini kapatır', !(await page.isVisible('#dlg-guide')));
 
   // hakkında
-  await page.click('button[aria-label="Hakkında"]');
+  await openMenuItem(page, 'about');
   await page.waitForSelector('#dlg-about[open]', { timeout: 10000 });
   const txt = await page.textContent('#dlg-about');
   check('hakkında: kaynaklar (Bardeen, BPT, Page–Thorne, Luminet)', /Bardeen, J\. M\. \(1973\)/.test(txt) && /Press, W\. H\./.test(txt) && /Page, D\. N\./.test(txt) && /Luminet/.test(txt));
   check('hakkında: FİZİKSEL/ESTETİK/GÖSTERİM + telif + sürüm', /FİZİKSEL/.test(txt) && /ESTETİK/.test(txt) && /GÖSTERİM/.test(txt) && /Telif hakkı © 2026 kuzeycetin3806-debug — Tüm hakları saklıdır/.test(txt) && /Sürüm \d+\.\d+\.\d+/.test(txt));
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.getElementById('dlg-about').open, null, { timeout: 10000 });
-  check('Esc hakkında penceresini kapatır, odak düğmeye döner', (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Hakkında');
-  check('tam ekran düğmesi (destekleniyorsa görünür)', await page.evaluate(() => { const b = document.querySelector('.tb-fs'); return document.fullscreenEnabled ? !b.hidden : b.hidden; }));
+  check('Esc hakkında penceresini kapatır, odak “…” düğmesine döner', (await page.evaluate(() => document.activeElement?.id)) === 'menu-toggle');
+  check('hakkında: imza + Kılavuz/Gizlilik bağlantıları', /App design by Kuzey Çetin/.test(txt) && /Kullanım kılavuzu/.test(txt) && /Gizlilik politikası/.test(txt));
+  await page.click('#menu-toggle');
+  check('tam ekran menü öğesi (destekleniyorsa görünür)', await page.evaluate(() => { const b = document.querySelector('[data-menu=fullscreen]'); return document.fullscreenEnabled ? !b.hidden : b.hidden; }));
 
-  // yükleme düğmesi: olay yokken gizli; sahte beforeinstallprompt ile görünür
-  check('yükle düğmesi olay yokken gizli', !(await page.isVisible('[data-install].tb-install')));
+  // yükleme: olay yokken menü öğesi gizli; sahte beforeinstallprompt ile görünür
+  check('yükle menü öğesi olay yokken gizli', !(await page.isVisible('[data-menu=install]')));
+  await page.keyboard.press('Escape');
   await page.evaluate(() => {
     const e = new Event('beforeinstallprompt');
     e.prompt = () => { window.__prompted = 1; return Promise.resolve(); };
     e.userChoice = Promise.resolve({ outcome: 'accepted' });
     window.dispatchEvent(e);
   });
-  await page.waitForSelector('[data-install].tb-install', { state: 'visible', timeout: 5000 });
-  await page.click('[data-install].tb-install');
-  await page.waitForFunction(() => window.__prompted === 1 && document.querySelector('[data-install].tb-install').hidden, null, { timeout: 5000 });
-  check('beforeinstallprompt → düğme görünür, tıklayınca prompt(), sonra gizlenir', true);
+  await page.click('#menu-toggle');
+  await page.waitForSelector('[data-menu=install]', { state: 'visible', timeout: 5000 });
+  await page.click('[data-menu=install]');
+  await page.waitForFunction(() => window.__prompted === 1 && document.querySelector('[data-menu=install]').hidden, null, { timeout: 5000 });
+  check('beforeinstallprompt → menü öğesi görünür, tıklayınca prompt(), sonra gizlenir', true);
 
   // standalone sınıfı: seçim/uzun basma kapalı
   const sa = await page.evaluate(() => { document.documentElement.classList.add('standalone'); const cs = getComputedStyle(document.getElementById('sahne')); return { us: cs.userSelect, ta: cs.touchAction }; });
@@ -611,17 +627,17 @@ async function pwaScreens() {
     await page.evaluate(() => window.__karadelik.ui.set({ animate: false, diskTime: 40, resolutionScale: 0.5 }));
     await settleRender(page, 1000, 30000);
     await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-ana.png`) });
-    await page.click('button[aria-label="Hakkında"]');
+    await openMenuItem(page, 'about');
     await page.waitForSelector('#dlg-about[open]');
     await sleep(500);
     await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-hakkinda.png`) });
     await page.keyboard.press('Escape');
     await page.keyboard.press('?');
-    await page.waitForSelector('#dlg-help[open]');
+    await page.waitForSelector('#dlg-guide[open]');
     await sleep(500);
-    await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-yardim.png`) });
+    await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-kilavuz.png`) });
     const ov = await page.evaluate(() => { const d = document.querySelector('dialog[open]').getBoundingClientRect(); return d.left >= 0 && d.right <= innerWidth && d.top >= 0 && d.bottom <= innerHeight && document.documentElement.scrollWidth <= innerWidth + 1; });
-    check(`[${v.n}] yardım penceresi görünüm içinde, taşma yok`, ov);
+    check(`[${v.n}] kılavuz penceresi görünüm içinde, taşma yok`, ov);
     await ctx.close();
   }
 }
@@ -664,7 +680,7 @@ async function screenshots() {
     const { ctx, page } = await openPage(v);
     // durağan, belirli desen; telefon/iPad kalite varsayılanı korunur
     await page.evaluate(() => window.__karadelik.ui.set({ animate: false, diskTime: 40, resolutionScale: 0.5 }));
-    await page.evaluate(() => window.__karadelik.ui.open());
+    await page.evaluate(() => { window.__karadelik.ui.setMode('advanced'); window.__karadelik.ui.open(); });
     await settleRender(page);
     const shot = (n) => page.screenshot({ path: path.join(OUT, `${v.name}-${n}.png`) });
     await shot('panel-acik');
@@ -697,11 +713,363 @@ async function screenshots() {
   }
 }
 
+// ================================================================== SADE ARAYÜZ / MENÜ / KILAVUZ / GİZLİLİK / İMZA
+const SIGN = 'App design by Kuzey Çetin';
+const SIMPLE_KEYS = ['a', 'thetaCam', 'rCam', 'Tmax', 'animate'];
+
+/** Görünür etkileşim hedeflerinden 44×44 px altında kalanları döndürür (dokunmatik profiller için). */
+async function smallTargets(page) {
+  return page.evaluate(() => {
+    const out = [];
+    const sel = 'a[href], button, summary, input[type=range], input[type=number], .seg label, label.switch';
+    for (const e of document.querySelectorAll(sel)) {
+      if (e.closest('.sr-only')) continue;
+      const b = e.getBoundingClientRect();
+      const cs = getComputedStyle(e);
+      if (b.width === 0 || b.height === 0 || cs.visibility === 'hidden' || cs.display === 'none') continue;
+      if (e.closest('[inert]') || e.closest('[hidden]')) continue;
+      if (b.height < 43.5 || b.width < 43.5) out.push(`${e.tagName.toLowerCase()}.${(e.className || e.id || '').toString().slice(0, 22)} ${Math.round(b.width)}×${Math.round(b.height)}`);
+    }
+    return out;
+  });
+}
+const visibleKeys = (page) => page.$$eval('#panel [data-ctl]', (els) => els.filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).display !== 'none'; }).map((e) => e.dataset.ctl));
+const visibleCount = (page, sel) => page.$$eval(sel, (els) => els.filter((e) => { const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && getComputedStyle(e).visibility !== 'hidden'; }).length);
+
+async function simpleChecks() {
+  console.log('\n== Basit / Gelişmiş mod, … menüsü, ipucu, Kılavuz, Gizlilik, imza ==');
+  const { ctx, page } = await openPage({ width: 1440, height: 900 });
+  await cheap(page);
+  await page.evaluate(() => window.__karadelik.ui.open());
+  await settleRender(page, 600, 15000);
+
+  // ---- ilk açılış ipucu (bir defalık)
+  check('ilk açılışta “Nasıl kullanılır” ipucu görünür', await page.isVisible('.tip') && /Sürükleyin/.test(await page.textContent('.tip')) && /Ayarlar/.test(await page.textContent('.tip')));
+  await page.click('.tip-ok');
+  await page.waitForSelector('.tip', { state: 'hidden', timeout: 5000 });
+  check('ipucu kapatılınca gizlenir ve localStorage’a yazılır', (await page.evaluate(() => localStorage.getItem('karadelik.tipSeen'))) === '1');
+
+  // ---- Basit mod (varsayılan)
+  check('varsayılan mod Basit; seçici segmentli kontrol (Basit | Gelişmiş)', (await page.evaluate(() => window.__karadelik.ui.getMode())) === 'simple' && (await page.$$eval('.seg-mode label', (l) => l.map((x) => x.textContent.trim()))).join('|') === 'Basit|Gelişmiş');
+  check('mod anahtarı kaydırılan alanın üstünde (sabit)', await page.evaluate(() => document.querySelector('.modebar').getBoundingClientRect().bottom <= document.querySelector('.panel-scroll').getBoundingClientRect().top + 1));
+  const totalCtl = await page.$$eval('#panel [data-ctl]', (e) => e.length);
+  const simpleVis = await visibleKeys(page);
+  check('Basit: yalnız Spin, Eğim, Uzaklık, Disk sıcaklığı, Animasyon görünür (≤ 4 kaydırıcı + animasyon)', simpleVis.join() === SIMPLE_KEYS.join(), simpleVis.join());
+  check('Basit: diğer kontroller silinmedi, yalnız gizli (DOM’da 25 kontrol)', totalCtl === 25, String(totalCtl));
+  check('Basit: 4 hazır ayar görsel kartı (küçük resimli)', (await visibleCount(page, '.preset')) === 4 && (await page.$$eval('.preset svg.preset-thumb', (s) => s.length)) === 4);
+  check('Basit: rozetler, lejant, bilimsel bilgi ve performans göstergesi gizli', (await visibleCount(page, '#panel .badge')) === 0 && (await visibleCount(page, '#panel .legend')) === 0 && (await visibleCount(page, '#panel [data-sec=info] summary')) === 0 && (await visibleCount(page, '#panel [data-sec=stats] summary')) === 0);
+  await page.click('[data-ctl=a] .ctl-help');
+  const tipSimple = await page.textContent('[data-ctl=a] .ctl-tip .tip-simple');
+  check('Basit: “?” tek dokunuşla sade açıklama gösterir (teknik metin gizli)', await page.isVisible('[data-ctl=a] .tip-simple') && !(await page.isVisible('[data-ctl=a] .tip-adv')) && /ne kadar hızlı/.test(tipSimple));
+  await page.click('[data-ctl=a] .ctl-help');
+  // basit kontroller renderer'a yazar
+  await page.fill('#ui-a', '0.5');
+  await page.fill('#ui-thetaCam', '60');
+  await page.fill('#ui-Tmax', '700');
+  await settleCamera(page);
+  let p = await P(page);
+  check('Basit: Spin/Eğim/Tmax kaydırıcıları → setParams', near(p.a, 0.5, 1e-9) && near(p.thetaCam, 60 * DEG, 1e-6) && near(p.Tmax, 2000 * Math.pow(500, 0.7), 1e-9), `a=${p.a} θ=${(p.thetaCam / DEG).toFixed(2)} Tmax=${p.Tmax.toFixed(0)}`);
+  await page.check('#ui-animate');
+  check('Basit: Animasyon anahtarı → animate', (await P(page)).animate === true);
+  await page.uncheck('#ui-animate');
+  check('Basit: panel altında imza', (await page.textContent('.panel-sign')).trim() === SIGN);
+
+  // ---- Gelişmiş
+  await page.click('label[for="ui-mode-advanced"]');
+  const advVis = await visibleKeys(page);
+  check('Gelişmiş: tüm 25 kontrol görünür', advVis.length === 25, String(advVis.length));
+  check('Gelişmiş: FİZİKSEL/ESTETİK/GÖSTERİM rozetleri ve lejant geri gelir', (await visibleCount(page, '#panel .badge.phys')) > 0 && (await visibleCount(page, '#panel .badge.aest')) > 0 && (await visibleCount(page, '#panel .badge.view')) > 0 && (await visibleCount(page, '#panel .legend')) === 1);
+  check('Gelişmiş: bilimsel bilgi + performans göstergesi bölümleri görünür', (await visibleCount(page, '#panel [data-sec=info] summary')) === 1 && (await visibleCount(page, '#panel [data-sec=stats] summary')) === 1);
+  check('Gelişmiş: mod localStorage’da', (await page.evaluate(() => localStorage.getItem('karadelik.uiMode'))) === 'advanced');
+  const camOpen = () => page.evaluate(() => `${window.__karadelik.ui.getMode()}:${document.querySelector('[data-sec=camera]').open}`);
+  await page.click('[data-sec=camera] summary');
+  const afterClose = await camOpen();
+  await page.click('label[for="ui-mode-simple"]');
+  const inSimple = await camOpen();
+  check('Basit’e dönünce temel kontrolleri içeren bölümler açık zorlanır', inSimple === 'simple:true', `${afterClose} → ${inSimple}`);
+  await page.click('label[for="ui-mode-advanced"]');
+  const backAdv = await camOpen();
+  check('Gelişmiş’e dönünce bölüm açık/kapalı durumu geri yüklenir (kamera kapalı kaldı)', backAdv === 'advanced:false', `${afterClose} → ${inSimple} → ${backAdv}`);
+  await page.click('[data-sec=camera] summary');
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => !!window.__karadelik?.ui, null, { timeout: 60000 });
+  await page.evaluate(() => window.__karadelik.ui.set({ animate: false, resolutionScale: 0.25 }));
+  check('yeniden yüklemede mod hatırlanır (Gelişmiş) ve ipucu tekrar gösterilmez', (await page.evaluate(() => window.__karadelik.ui.getMode())) === 'advanced' && !(await page.isVisible('.tip')));
+  await page.click('label[for="ui-mode-simple"]');
+  check('Basit seçimi de hatırlanır', (await page.evaluate(() => localStorage.getItem('karadelik.uiMode'))) === 'simple');
+  await page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
+
+  // ---- araç çubuğu: birincil + … menüsü
+  const prim = await page.$$eval('.toolbar:not(.toolbar-util) button', (b) => b.map((x) => x.getAttribute('aria-label')));
+  check('araç çubuğu: birincil eylemler Ayarlar · Sıfırla · Ekran görüntüsü + tek “…” düğmesi', prim.length === 3 && /Ayarlar|Kontrol paneli/.test(prim[0]) && /sıfırla/i.test(prim[1]) && /Ekran görüntüsü/.test(prim[2]) && (await page.$$eval('.toolbar-util > button', (b) => b.length)) === 1);
+  await page.click('#menu-toggle');
+  check('… menüsü açılır (aria-expanded=true, role=menu)', (await page.getAttribute('#menu-toggle', 'aria-expanded')) === 'true' && (await page.getAttribute('#app-menu', 'role')) === 'menu');
+  const items = await page.$$eval('#app-menu .menu-item:not([hidden])', (b) => b.map((x) => x.dataset.menu));
+  check('… menüsü: Kılavuz, Hakkında, Gizlilik, Tam ekran (varsa)', ['guide', 'about', 'privacy'].every((k) => items.includes(k)), items.join());
+  await page.keyboard.press('Escape');
+  check('Esc … menüsünü kapatır, odak düğmeye döner', !(await page.isVisible('#app-menu')) && (await page.evaluate(() => document.activeElement?.id)) === 'menu-toggle' && (await page.getAttribute('#menu-toggle', 'aria-expanded')) === 'false');
+  await page.focus('#menu-toggle');
+  await page.keyboard.press('ArrowDown');
+  const f1 = await page.evaluate(() => document.activeElement?.dataset.menu);
+  await page.keyboard.press('ArrowDown');
+  const f2 = await page.evaluate(() => document.activeElement?.dataset.menu);
+  check('menü: ↓ ile açılır ve öğeler arasında gezinilir', f1 === 'guide' && f2 === 'about', `${f1} → ${f2}`);
+  await page.mouse.click(700, 500);
+  check('menü dışına tıklayınca kapanır', !(await page.isVisible('#app-menu')));
+
+  // ---- Kılavuz / Gizlilik / Hakkında
+  await openMenuItem(page, 'guide');
+  await page.waitForSelector('#dlg-guide[open]');
+  const gtxt = await page.textContent('#dlg-guide');
+  check('Kılavuz açılır; içerik: gölge, foton halkası, merceklenme, Doppler, kırmızıya kayma, iOS Safari, WebGL2', ['Gölge', 'Foton halkası', 'Merceklenmiş disk', 'Doppler parlaması', 'Kırmızıya kayma', 'Ana Ekrana Ekle', 'WebGL 2', 'pil'].every((k) => new RegExp(k, 'i').test(gtxt)));
+  await page.click('#dlg-guide [data-goto=trouble]');
+  check('Kılavuz bölüm düğmesi ilgili bölüme kaydırır', await page.evaluate(() => { const b = document.querySelector('#dlg-guide .dlg-body').getBoundingClientRect(); const t = document.getElementById('guide-trouble').getBoundingClientRect(); return t.top >= b.top - 2 && t.top < b.top + 200; }));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('dlg-guide').open);
+  await openMenuItem(page, 'privacy');
+  await page.waitForSelector('#dlg-privacy[open]');
+  const ptxt = await page.textContent('#dlg-privacy');
+  check('Gizlilik açılır: yürürlük 7 Kasım 2026, localStorage anahtarları, GitHub Pages/IP, Çocukların gizliliği, İngilizce özet', /7 Kasım 2026/.test(ptxt) && /karadelik\.uiMode/.test(ptxt) && /GitHub Pages/.test(ptxt) && /IP adresi/.test(ptxt) && /Çocukların gizliliği/.test(ptxt) && /does not collect/.test(ptxt));
+  check('Gizlilik: GitHub Gizlilik Bildirimi + depo bağlantıları, e-posta adresi yok', (await page.$$eval('#dlg-privacy a.ext', (a) => a.map((x) => x.href))).join() === 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement' && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(ptxt));
+  check('Gizlilik: “Tam sayfa aç” → gizlilik.html', (await page.getAttribute('#dlg-privacy a.dlg-full', 'href')).endsWith('gizlilik.html'));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('dlg-privacy').open);
+  await openMenuItem(page, 'about');
+  await page.waitForSelector('#dlg-about[open]');
+  check('Hakkında altbilgisinde imza', (await page.textContent('#dlg-about .dlg-foot .designer')).trim() === SIGN);
+  await page.click('#dlg-about [data-open=privacy]');
+  await page.waitForSelector('#dlg-privacy[open]');
+  check('Hakkında → Gizlilik politikası düğmesi gizlilik penceresini açar (hakkında kapanır)', !(await page.evaluate(() => document.getElementById('dlg-about').open)));
+  await page.keyboard.press('Escape');
+  await ctx.close();
+}
+
+async function docsChecks() {
+  console.log('\n== Bağımsız sayfalar, harici istek taraması, gizlilik doğruluğu ==');
+  const origin = new URL(url).origin;
+  // --- kaynak taraması (statik)
+  const { S } = await import('../../src/ui/strings.js');
+  const { PREF_KEYS } = await import('../../src/ui/prefs.js');
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const srcFiles = [...walk(path.join(PROJECT_ROOT, 'src')).filter((f) => /\.(js|css|glsl)$/.test(f)), path.join(PROJECT_ROOT, 'index.html'), ...walk(path.join(PROJECT_ROOT, 'public')).filter((f) => /\.(html|js|css|webmanifest|svg)$/.test(f))];
+  const hosts = new Set();
+  const bad = [];
+  for (const f of srcFiles) {
+    const t = fs.readFileSync(f, 'utf8');
+    for (const m of t.matchAll(/https?:\/\/([a-z0-9.-]+)[^\s'"`)<>]*/gi)) if (!/^(www\.w3\.org)$/.test(m[1])) hosts.add(m[1]);
+    if (/@import|fonts\.googleapis|gstatic|unpkg|jsdelivr|cdnjs|google-analytics|googletagmanager|sendBeacon|XMLHttpRequest|WebSocket\(|EventSource\(|document\.cookie/.test(t)) bad.push(path.relative(PROJECT_ROOT, f));
+    if (/\.js$/.test(f) && !f.endsWith('public/sw.js') && /\bfetch\(/.test(t)) bad.push(path.relative(PROJECT_ROOT, f) + ' (fetch)');
+  }
+  check('kaynak taraması: harici font/CDN/analitik/çerez/ağ API’si yok', bad.length === 0, bad.join(', '));
+  check('kaynakta yalnız GitHub bağlantıları (tıklanabilir, istek değil)', [...hosts].every((h) => /^(github\.com|docs\.github\.com)$/.test(h)), [...hosts].join(','));
+  const codeKeys = new Set();
+  for (const f of walk(path.join(PROJECT_ROOT, 'src/ui')).filter((x) => x.endsWith('.js') && !x.endsWith('strings.js'))) for (const m of fs.readFileSync(f, 'utf8').matchAll(/['"`](karadelik\.[A-Za-z]+)['"`]/g)) codeKeys.add(m[1]);
+  const policyKeys = new Set(S.privacy.sections.find((x) => x.id === 'storage').blocks.find(([k]) => k === 'dl')[1].map(([k]) => k));
+  check('gizlilik politikasındaki localStorage anahtarları = koddakiler', [...codeKeys].sort().join() === [...policyKeys].sort().join() && [...codeKeys].sort().join() === Object.values(PREF_KEYS).sort().join(), `${[...codeKeys].sort().join()} | ${[...policyKeys].sort().join()}`);
+  const mk = (await import('node:child_process')).spawnSync('node', ['tests/ui/make-pages.mjs', '--check'], { cwd: PROJECT_ROOT, encoding: 'utf8' });
+  check('kilavuz.html / gizlilik.html güncel (strings.js’den üretilmiş)', mk.status === 0, (mk.stderr || '').trim());
+
+  // --- tarayıcıda: uygulama + sayfalar → yalnız aynı kökene istek
+  for (const [file, opts] of [['', {}], ['kilavuz.html', {}], ['gizlilik.html', {}]]) {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 800 }, reducedMotion: 'reduce', colorScheme: 'dark' });
+    const page = await ctx.newPage();
+    const reqs = [];
+    page.on('request', (r) => reqs.push(r.url()));
+    const resp = await page.goto(url + file, { waitUntil: 'load' });
+    if (!file) { await page.waitForFunction(() => window.__karadelik?.renderer?.getStats().frames > 0, null, { timeout: 120000 }); }
+    const external = reqs.filter((u) => !u.startsWith(origin) && !u.startsWith('data:') && !u.startsWith('blob:') && !u.startsWith('about:'));
+    check(`${file || 'uygulama (/)'}: 200 ve harici istek yok (${reqs.length} istek)`, resp.status() === 200 && external.length === 0, external.slice(0, 3).join(' '));
+    if (file) {
+      const info = await page.evaluate(() => ({
+        doctype: document.doctype?.name, charset: document.characterSet, lang: document.documentElement.lang,
+        vp: document.querySelector('meta[name=viewport]')?.content, back: document.querySelector('a[href="./"]')?.textContent,
+        h1: document.querySelector('h1')?.textContent, sign: document.querySelector('footer .sign')?.textContent,
+        overflow: document.documentElement.scrollWidth > innerWidth + 1, secs: document.querySelectorAll('main > section').length,
+        style: document.querySelector('style')?.textContent || '', ext: [...document.querySelectorAll('link[href],script[src],img[src]')].map((e) => e.getAttribute('href') || e.getAttribute('src')),
+      }));
+      check(`${file}: doctype, utf-8, lang=tr, viewport, uygulamaya dönüş ./, imza`, info.doctype === 'html' && /utf-8/i.test(info.charset) && info.lang === 'tr' && /width=device-width/.test(info.vp) && /Uygulamaya dön/.test(info.back) && info.sign === SIGN && info.h1.length > 3);
+      check(`${file}: tek dosya (harici stil/betik/görsel yok), prefers-color-scheme + print stili`, info.ext.every((x) => /^icons\//.test(x)) && /prefers-color-scheme:dark/.test(info.style) && /@media print/.test(info.style) && !info.overflow, info.ext.join());
+      await page.emulateMedia({ colorScheme: 'dark' });
+      const dark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      await page.emulateMedia({ colorScheme: 'light' });
+      const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      await page.emulateMedia({ media: 'print' });
+      const printBar = await page.evaluate(() => getComputedStyle(document.querySelector('.bar')).display);
+      check(`${file}: koyu tema siyah, açık tema açık gri, yazdırmada düğme çubuğu gizli`, dark === 'rgb(0, 0, 0)' && light === 'rgb(245, 245, 247)' && printBar === 'none', `${dark} / ${light} / ${printBar}`);
+      await page.emulateMedia({ media: 'screen', colorScheme: 'dark' });
+      const t375 = await smallTargets(page);
+      check(`${file}: dokunma hedefleri ≥ 44 px (375 px)`, t375.length === 0, t375.slice(0, 4).join('; '));
+      await page.screenshot({ path: path.join(APPLE_OUT, `sayfa-${file.replace('.html', '')}-375.png`), fullPage: false });
+      if (file === 'gizlilik.html') {
+        const txt = await page.evaluate(() => document.body.innerText);
+        check('gizlilik.html: yürürlük 7 Kasım 2026, sorumlu Kuzey Çetin, GitHub Gizlilik Bildirimi + depo, İngilizce özet, e-posta yok', /7 Kasım 2026/.test(txt) && /Kuzey Çetin/.test(txt) && (await page.$('a[href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement"]')) && (await page.$('a[href="https://github.com/kuzeycetin3806-debug/Karadelikprojesi"]')) && (await page.$('section[lang=en]')) && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(txt));
+      } else {
+        check('kilavuz.html: 8 bölüm, Kontroller/Ne görüyorsunuz/iOS kurulum içerikleri', info.secs === 8 && /Paylaş/.test(await page.evaluate(() => document.body.innerText)));
+      }
+    }
+    await ctx.close();
+  }
+
+  // --- uygulama içi kılavuz = bağımsız sayfa (aynı bölüm başlıkları)
+  const gs = S.guide.sections.map((x) => x.title).join('|');
+  const pg = await browser.newPage();
+  await pg.goto(url + 'kilavuz.html');
+  check('kilavuz.html bölüm başlıkları = uygulama içi kılavuz', (await pg.$$eval('main > section > h2', (e) => e.map((x) => x.textContent))).join('|') === gs);
+  await pg.close();
+
+  // --- index.html: Apple meta, başlangıç görüntüleri, ikon
+  const html = fs.readFileSync(path.join(PROJECT_ROOT, 'index.html'), 'utf8');
+  const links = [...html.matchAll(/<link rel="apple-touch-startup-image" href="\/([^"]+)" media="\(device-width: (\d+)px\) and \(device-height: (\d+)px\) and \(-webkit-device-pixel-ratio: (\d)\) and \(orientation: (\w+)\)"/g)];
+  const jpegSize = (f) => { const b = fs.readFileSync(f); let o = 2; while (o < b.length) { if (b[o] !== 0xff) { o++; continue; } const m = b[o + 1]; if (m >= 0xc0 && m <= 0xc3) return [b.readUInt16BE(o + 7), b.readUInt16BE(o + 5)]; o += 2 + b.readUInt16BE(o + 2); } return null; };
+  const badSplash = [];
+  for (const [, f, w, h, dpr, ori] of links) {
+    const file = path.join(PROJECT_ROOT, 'public', f);
+    if (!fs.existsSync(file)) { badSplash.push(`yok ${f}`); continue; }
+    const [pw, ph] = jpegSize(file) || [0, 0];
+    const [ew, eh] = ori === 'portrait' ? [w * dpr, h * dpr] : [h * dpr, w * dpr];
+    if (pw !== ew || ph !== eh) badSplash.push(`${f}: ${pw}×${ph} ≠ ${ew}×${eh}`);
+  }
+  check('apple-touch-startup-image: 15 bağlantı, dosyalar var, piksel boyutları media sorgusuyla uyumlu', links.length === 15 && badSplash.length === 0, badSplash.join('; ') || `${links.length}`);
+  const png = fs.readFileSync(path.join(PROJECT_ROOT, 'public/icons/apple-touch-icon.png'));
+  check('apple-touch-icon 180×180, opak (alfa kanalı yok → iOS siyaha çevirmez)', png.readUInt32BE(16) === 180 && png.readUInt32BE(20) === 180 && png[25] === 2);
+  check('index.html: imza + apple-mobile-web-app-* + status-bar black-translucent', html.includes(`>${SIGN}</div>`) && /apple-mobile-web-app-capable" content="yes"/.test(html) && /black-translucent/.test(html) && /apple-mobile-web-app-title/.test(html));
+  const css = fs.readFileSync(path.join(PROJECT_ROOT, 'src/styles/ui.css'), 'utf8');
+  check('CSS: yazı boyutları rem (dinamik tip), sistem yazı tipi, @supports yedekleri', !/font-size:\s*[\d.]+px/.test(css) && /-apple-system-body/.test(css) && /-apple-system, BlinkMacSystemFont, 'SF Pro Text'/.test(css) && /@supports not \(\(-webkit-backdrop-filter/.test(css) && /prefers-contrast: more/.test(css) && /prefers-reduced-motion: reduce/.test(css));
+  const sw = fs.readFileSync(path.join(PROJECT_ROOT, 'public/sw.js'), 'utf8');
+  check('sw.js: sayfalar önbellek kabuğunda, VERSION satırı biçimi korunmuş', /'kilavuz\.html'/.test(sw) && /'gizlilik\.html'/.test(sw) && /^const VERSION = '[^']*';$/m.test(sw));
+}
+
+// ================================================================== APPLE PROFİLLERİ (Chromium + Playwright cihaz profilleri)
+const APPLE = [
+  { name: 'iphone17pro', dev: 'iPhone 17 Pro', touch: true, phone: true },
+  { name: 'iphoneSE', dev: 'iPhone SE', touch: true, phone: true },
+  { name: 'ipadpro11-dikey', dev: 'iPad Pro 11', touch: true },
+  { name: 'ipadpro11-yatay', dev: 'iPad Pro 11 landscape', touch: true },
+  { name: 'masaustu-1440x900', dev: null, touch: false },
+];
+
+async function appleChecks() {
+  console.log('\n== Apple profilleri (Chromium + devices; WebKit motoru değil) ==');
+  const pw = require('playwright');
+  const noHint = () => { try { localStorage.setItem('karadelik.iosHintDismissed', '1'); } catch { /* yok say */ } };
+  for (const v of APPLE) {
+    const dev = v.dev ? pw.devices[v.dev] : null;
+    if (v.dev && !dev) { check(`[${v.name}] cihaz profili mevcut`, false, v.dev); continue; }
+    const tag = v.name;
+    const vp = dev ? dev.viewport : { width: 1440, height: 900 };
+    // 1) statik açılış ekranı (main.js tutulur): imza, güvenli alan, ekran görüntüsü
+    {
+      const ctx = await browser.newContext(dev ? { ...dev, reducedMotion: 'reduce' } : { viewport: vp, reducedMotion: 'reduce' });
+      const page = await ctx.newPage();
+      await page.route('**/src/main.js*', () => {});
+      await page.goto(url, { waitUntil: 'commit' });
+      await page.waitForSelector('#splash img', { timeout: 30000 });
+      await page.waitForFunction(() => document.querySelector('#splash img').complete);
+      await sleep(400);
+      const r = await page.evaluate(() => { const s = document.getElementById('splash-sign').getBoundingClientRect(); const cs = getComputedStyle(document.getElementById('splash-sign')); return { text: document.getElementById('splash-sign').textContent, bottom: s.bottom, vh: innerHeight, top: s.top, size: parseFloat(cs.fontSize), vis: cs.visibility }; });
+      check(`[${tag}] açılış ekranı: imza en altta, küçük, görünüm içinde`, r.text === SIGN && r.bottom <= r.vh && r.top > r.vh * 0.8 && r.size <= 13 && r.vis === 'visible', JSON.stringify(r));
+      await page.screenshot({ path: path.join(APPLE_OUT, `${tag}-splash.png`) });
+      await ctx.close();
+    }
+    // 2) uygulama
+    const { ctx, page } = await openPage(dev ? { device: { ...dev, __name: tag }, dpr: 1, init: noHint } : { width: 1440, height: 900, init: noHint });
+    await page.evaluate(() => window.__karadelik.ui.set({ animate: false, resolutionScale: 0.35, bloom: false }));
+    await settleRender(page, 800, 20000);
+    const shot = (n) => page.screenshot({ path: path.join(APPLE_OUT, `${tag}-${n}.png`) });
+    const ov = () => page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1);
+    check(`[${tag}] ana ekran: sayfa taşması / kaydırma çubuğu yok`, !(await ov()));
+    await page.evaluate(() => window.__karadelik.ui.close());
+    await sleep(500);
+    await shot('ana-basit');
+    // overscroll / dokunma / uzun basma
+    const css = await page.evaluate(() => ({
+      body: getComputedStyle(document.body).overscrollBehaviorY, html: getComputedStyle(document.documentElement).overscrollBehaviorY,
+      canvasTouch: getComputedStyle(document.getElementById('sahne')).touchAction, canvasSel: getComputedStyle(document.getElementById('sahne')).userSelect,
+      uiTouch: getComputedStyle(document.getElementById('ui')).touchAction, scroll: getComputedStyle(document.querySelector('.panel-scroll')).overscrollBehaviorY,
+      fixed: getComputedStyle(document.documentElement).overflow,
+    }));
+    check(`[${tag}] sahne: lastik bant yok (overscroll none), touch-action none, metin seçimi yok; arayüz çift dokunma yakınlaştırması yok; panel kaydırması contain`, css.body === 'none' && css.html === 'none' && css.canvasTouch === 'none' && css.canvasSel === 'none' && css.uiTouch === 'manipulation' && css.scroll === 'contain', JSON.stringify(css));
+    const ctxm = await page.evaluate(() => { const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); document.getElementById('sahne').dispatchEvent(e); return e.defaultPrevented; });
+    check(`[${tag}] sahnede uzun basma / sağ tık menüsü engellenir`, ctxm);
+
+    // panel (Basit)
+    await page.evaluate(() => window.__karadelik.ui.open());
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('panel')).visibility === 'visible', null, { timeout: 15000 });
+    await sleep(500);
+    await shot('panel-basit');
+    const pb = await page.evaluate(() => { const b = document.getElementById('panel').getBoundingClientRect(); return b.left >= -1 && b.right <= innerWidth + 1 && b.top >= -1 && b.bottom <= innerHeight + 1; });
+    check(`[${tag}] Basit panel görünümün içinde, taşma yok`, pb && !(await ov()));
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] Basit panel: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    // Gelişmiş
+    await page.click('label[for="ui-mode-advanced"]');
+    await sleep(300);
+    await shot('panel-gelismis');
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] Gelişmiş panel: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    await page.evaluate(() => { document.querySelector('[data-sec=info]').open = true; document.querySelector('[data-sec=info]').scrollIntoView(); });
+    await sleep(200);
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] Gelişmiş + bilgi bölümü: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    await shot('panel-gelismis-bilgi');
+    await page.evaluate(() => { document.querySelector('.panel-scroll').scrollTop = 1e6; });
+    await sleep(150);
+    check(`[${tag}] panel altında imza görünür (kaydırınca)`, await page.evaluate(() => { const e = document.querySelector('.panel-sign'); const b = e.getBoundingClientRect(); const pr = document.getElementById('panel').getBoundingClientRect(); return e.textContent === 'App design by Kuzey Çetin' && b.bottom <= pr.bottom + 1 && b.top >= pr.top; }));
+    await page.click('label[for="ui-mode-simple"]');
+    if (v.phone) await page.evaluate(() => window.__karadelik.ui.close());
+    // … menüsü
+    await page.click('#menu-toggle');
+    await sleep(350);
+    await shot('menu');
+    const mi = await page.evaluate(() => { const m = document.getElementById('app-menu').getBoundingClientRect(); return m.left >= 0 && m.right <= innerWidth + 1 && m.bottom <= innerHeight; });
+    check(`[${tag}] … menüsü görünüm içinde`, mi);
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] … menüsü + araç çubuğu: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    await page.keyboard.press('Escape');
+    // kılavuz / gizlilik / hakkında
+    for (const [id, nm] of [['guide', 'kilavuz'], ['privacy', 'gizlilik'], ['about', 'hakkinda']]) {
+      await openMenuItem(page, id);
+      await page.waitForSelector(`#dlg-${id}[open]`);
+      await sleep(450);
+      await shot(nm);
+      const di = await page.evaluate(() => { const d = document.querySelector('dialog[open]').getBoundingClientRect(); return d.left >= 0 && d.right <= innerWidth && d.top >= 0 && d.bottom <= innerHeight && document.documentElement.scrollWidth <= innerWidth + 1; });
+      check(`[${tag}] ${nm} penceresi görünüm içinde`, di);
+      if (v.touch) { const t = await smallTargets(page); check(`[${tag}] ${nm} penceresi: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+    }
+    // açık tema: yalnız iPad dikey + masaüstü
+    if (tag === 'ipadpro11-dikey' || !v.dev) {
+      await page.emulateMedia({ colorScheme: 'light' });
+      await openMenuItem(page, 'guide');
+      await page.waitForSelector('#dlg-guide[open]');
+      await sleep(400);
+      await shot('kilavuz-acik-tema');
+      const lc = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('dlg-guide')); const rgb = (s) => s.match(/[\d.]+/g).slice(0, 3).map((x) => (s.startsWith('color(') ? Number(x) * 255 : Number(x))); const lum = (c) => { const f = c.map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]; }; const bg = lum(rgb(cs.backgroundColor)); const fg = lum(rgb(cs.color)); const mu = getComputedStyle(document.querySelector('#dlg-guide dl.terms dd')); const mfg = lum(rgb(mu.color)); const r = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); return { bg: cs.backgroundColor, ratio: r(bg, fg), muted: r(bg, mfg) }; });
+      check(`[${tag}] açık temada kılavuz okunaklı (metin ≥ 7:1, soluk metin ≥ 4,5:1)`, lc.ratio >= 7 && lc.muted >= 4.5, JSON.stringify(lc));
+      await page.keyboard.press('Escape');
+      await page.emulateMedia({ colorScheme: 'dark' });
+    }
+    if (v.touch && v.dev === 'iPad Pro 11') {
+      // Stage Manager / Split View / Slide Over: dar genişlikler
+      for (const w of [320, 507, 678, 744]) {
+        await page.setViewportSize({ width: w, height: 800 });
+        await sleep(250);
+        await page.evaluate(() => window.__karadelik.ui.open());
+        await sleep(450);
+        const r2 = await page.evaluate(() => { const b = document.getElementById('panel').getBoundingClientRect(); const t = document.querySelector('.toolbar').getBoundingClientRect(); const u = document.querySelector('.toolbar-util').getBoundingClientRect(); return { inside: b.left >= -1 && b.right <= innerWidth + 1, overlap: !(t.right <= u.left || u.right <= t.left) && t.bottom > u.top && u.bottom > t.top, ox: document.documentElement.scrollWidth > innerWidth + 1 }; });
+        check(`[${tag}] yeniden boyutlandırma ${w}×800 (Split View / Slide Over / Stage Manager): panel içeride, çubuklar çakışmıyor, taşma yok`, r2.inside && !r2.overlap && !r2.ox, JSON.stringify(r2));
+        if (w === 320) await shot('dar-320');
+      }
+    }
+    await ctx.close();
+  }
+}
+
 try {
   if (ONLY === 'shell') { manifestChecks(); await shellChecks(); await pwaScreens(); }
+  else if (ONLY === 'simple') await simpleChecks();
+  else if (ONLY === 'docs') await docsChecks();
+  else if (ONLY === 'apple') await appleChecks();
   else {
-    if (ONLY !== 'shots') { manifestChecks(); await logicDesktop(); await logicTouch(); await shellChecks(); }
-    if (ONLY !== 'logic') { await screenshots(); await pwaScreens(); }
+    if (ONLY !== 'shots') { manifestChecks(); await logicDesktop(); await logicTouch(); await shellChecks(); await simpleChecks(); await docsChecks(); }
+    if (ONLY !== 'logic') { await screenshots(); await pwaScreens(); await appleChecks(); }
   }
 } catch (e) {
   console.error('TEST HATASI:', e);

@@ -16,7 +16,7 @@ const BASE_PATH = '/Karadelikprojesi/';
 const DIST = path.join(PROJECT_ROOT, 'dist');
 if (!NO_BUILD) execSync('npm run build', { cwd: PROJECT_ROOT, stdio: 'pipe' });
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.json': 'application/json' };
 let swVersion = 'v1'; // güncelleme testi: sunucu farklı baytlı sw.js verir
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -78,6 +78,11 @@ try {
     const c = await caches.open(names[0]);
     return { names, urls: (await c.keys()).map((r) => r.url) };
   });
+  check('önbellek: kilavuz.html ve gizlilik.html ön yüklendi (çevrimdışı açılsın)', cached.urls.includes(base + 'kilavuz.html') && cached.urls.includes(base + 'gizlilik.html'));
+  const fullHref = await page.evaluate(() => { const d = window.__karadelik.ui.dialogs; return [d.guide.querySelector('a.dlg-full').href, d.privacy.querySelector('a.dlg-full').href]; });
+  check('uygulama içi “Tam sayfa aç” bağlantıları alt yolda doğru çözülür', fullHref[0] === base + 'kilavuz.html' && fullHref[1] === base + 'gizlilik.html', fullHref.join(' '));
+  const splashImgs = await page.evaluate(async () => Promise.all([...document.querySelectorAll('link[rel=apple-touch-startup-image]')].map((l) => fetch(l.href).then((r) => r.status))));
+  check('apple-touch-startup-image bağlantıları alt yoldan 200 döner', splashImgs.length === 15 && splashImgs.every((x) => x === 200), `${splashImgs.length} bağlantı`);
   check('önbellek: index + hash\'li assets + manifest + ikonlar ön yüklendi', cached.urls.includes(base) && cached.urls.some((u) => /\/assets\/index-.*\.js$/.test(u)) && cached.urls.some((u) => /\/assets\/index-.*\.css$/.test(u)) && cached.urls.includes(base + 'manifest.webmanifest'), `${cached.names} · ${cached.urls.length} girdi`);
 
   // ---- çevrimdışı
@@ -93,6 +98,13 @@ try {
   // alt sayfa gezinmesi de çevrimdışı index'e düşer
   const r2 = await page.goto(base + 'index.html', { waitUntil: 'load' });
   check('çevrimdışı: /index.html gezinmesi önbellekten', !!r2 && r2.ok());
+  // yeni sayfalar çevrimdışı açılır (kendi içerikleriyle; index'e düşmez)
+  for (const [f, re] of [['kilavuz.html', /Kullanım kılavuzu/], ['gizlilik.html', /7 Kasım 2026/]]) {
+    const rr = await page.goto(base + f, { waitUntil: 'load' });
+    const t = await page.evaluate(() => ({ title: document.title, h1: document.querySelector('h1')?.textContent || '', body: document.body.innerText, app: !!window.__karadelik }));
+    check(`çevrimdışı: ${f} önbellekten açılır, kendi içeriği (uygulama kabuğu değil)`, !!rr && rr.ok() && rr.fromServiceWorker() && re.test(t.body) && !t.app, `status=${rr?.status()} h1=${t.h1}`);
+  }
+  await page.goto(base + 'index.html', { waitUntil: 'load' });
   await cheapStart();
   await ctx.setOffline(false);
 

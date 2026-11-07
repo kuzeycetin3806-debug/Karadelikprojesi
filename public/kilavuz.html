@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kullanım kılavuzu — Kara Delik Simülasyonu</title>
+<meta name="description" content="Dönen (Kerr) bir kara deliğin çevresinde ışığın nasıl büküldüğünü gerçek zamanlı keşfedin.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="author" content="Kuzey Çetin">
+<link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{color-scheme:light dark;--bg:#f5f5f7;--card:#fff;--text:#1d1d1f;--muted:#55555c;--line:rgba(0,0,0,.12);--accent:#0a5fc4;--kbd:rgba(0,0,0,.05)}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--text:#f2f2f7;--muted:#a6a6ae;--line:rgba(255,255,255,.14);--accent:#64b5ff;--kbd:rgba(255,255,255,.1)}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@supports (font:-apple-system-body){html{font:-apple-system-body}}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',system-ui,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:1rem;line-height:1.55;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.wrap{max-width:46rem;margin:0 auto}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.bar a,.bar button{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--accent);font:inherit;font-size:.9375rem;text-decoration:none;cursor:pointer}
+h1{font-size:1.75rem;line-height:1.2;margin:.4em 0 .2em}
+.lead,.meta{color:var(--muted);margin:.2em 0 1em}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 1.2em;padding:0}
+nav.toc a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text);text-decoration:none;font-size:.875rem}
+section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:4px 18px 16px;margin:0 0 14px;scroll-margin-top:12px}
+h2{font-size:1.2rem;margin:.9em 0 .4em}
+h3{font-size:1rem;margin:1.1em 0 .3em}
+p{margin:.5em 0}
+ul{margin:.5em 0;padding-left:1.3em}
+li{margin:.25em 0}
+dl.terms dt{font-weight:650;margin-top:.8em}
+dl.terms dd{margin:.15em 0 0;color:var(--muted)}
+dl.keys{display:grid;grid-template-columns:minmax(9rem,14rem) 1fr;gap:.5em 1em;margin:.5em 0;align-items:baseline}
+dl.keys dt,dl.keys dd{margin:0}
+@media (max-width:30rem){dl.keys{grid-template-columns:1fr;gap:.1em}dl.keys dd{margin-bottom:.6em}}
+kbd{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:.8125rem;padding:2px 8px;border-radius:6px;border:1px solid var(--line);border-bottom-width:2px;background:var(--kbd);white-space:nowrap}
+.note{color:var(--muted);font-size:.875rem}
+.links{display:flex;flex-wrap:wrap;gap:4px 18px}
+.links a{display:inline-flex;align-items:center;min-height:44px;color:var(--accent)}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+footer{margin:18px 0 0;color:var(--muted);font-size:.8125rem;text-align:center}
+footer p{margin:.3em 0}
+footer a{display:inline-flex;align-items:center;min-height:44px;padding:0 8px}
+footer .sign{opacity:.8;letter-spacing:.03em}
+@media print{
+  :root{--bg:#fff;--card:#fff;--text:#000;--muted:#333;--line:#bbb;--accent:#000}
+  body{padding:0;font-size:11pt}.bar,nav.toc{display:none}section{break-inside:avoid;border:0;border-bottom:1px solid #ccc;border-radius:0;padding:0 0 8px}
+  a[href^="http"]::after{content:" (" attr(href) ")";font-size:.8em;color:#333}
+}
+@media (prefers-contrast:more){:root{--line:currentColor}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<!-- Bu dosya tests/ui/make-pages.mjs ile src/ui/strings.js içeriğinden üretilir; elle düzenlemeyin. -->
+<div class="wrap">
+  <div class="bar">
+    <a href="./">&larr; Uygulamaya dön</a>
+    <button type="button" onclick="window.print()">Yazdır</button>
+  </div>
+  <header>
+    <h1>Kullanım kılavuzu</h1>
+    <p class="lead">Dönen (Kerr) bir kara deliğin çevresinde ışığın nasıl büküldüğünü gerçek zamanlı keşfedin.</p>
+  </header>
+  <nav class="toc" aria-label="Bölümler"><a href="#start">Başlarken</a><a href="#camera">Kamerayı kontrol etme</a><a href="#presets">Hazır ayarlar</a><a href="#controls">Kontroller</a><a href="#seeing">Ne görüyorsunuz?</a><a href="#performance">Performans ipuçları</a><a href="#install">Uygulamayı yükleme</a><a href="#trouble">Sorun giderme</a></nav>
+  <main>
+    <section id="start">
+      <h2>Başlarken</h2>
+      <p>Bu uygulama, bir kara deliğin çevresindeki ışığın izlediği yolu her piksel için geriye doğru hesaplayarak (ışın izleme) görüntü üretir. Hesap cihazınızın ekran kartında yapılır; internet bağlantısı gerekmez.</p>
+      <ul><li>Sahneyi sürükleyerek kara deliğin çevresinde dönün; iki parmakla (veya fare tekerleğiyle) yakınlaşın.</li><li>Ayarlar düğmesiyle paneli açın ve bir hazır ayar seçin.</li><li>İsterseniz Spin, Eğim, Uzaklık ve Disk sıcaklığı kaydırıcılarıyla görüntüyü değiştirin.</li><li>Kamera düğmesi ekran görüntüsü kaydeder; “…” menüsünde Kılavuz, Hakkında, Gizlilik ve Tam ekran bulunur.</li></ul>
+    </section>
+    <section id="camera">
+      <h2>Kamerayı kontrol etme</h2>
+      <h3>Fare</h3>
+      <dl class="keys"><dt><kbd>Sürükle</kbd></dt><dd>Kamerayı kara deliğin çevresinde döndürür (yörünge).</dd><dt><kbd>Tekerlek</kbd></dt><dd>Yakınlaştırır / uzaklaştırır.</dd><dt><kbd>Çift tıkla</kbd></dt><dd>Kamerayı başlangıç konumuna alır.</dd></dl>
+      <h3>Dokunmatik ekran</h3>
+      <dl class="keys"><dt><kbd>Tek parmak sürükle</kbd></dt><dd>Yörünge.</dd><dt><kbd>İki parmak aç/kıs</kbd></dt><dd>Yakınlaştır / uzaklaştır.</dd><dt><kbd>Çift dokun</kbd></dt><dd>Kamerayı sıfırlar.</dd></dl>
+      <h3>Klavye</h3>
+      <dl class="keys"><dt><kbd>← → ↑ ↓</kbd></dt><dd>Yörünge (yatay: azimut, dikey: eğim). Önce sahneye odaklanın (Tab).</dd><dt><kbd>+  −  (PgUp / PgDn)</kbd></dt><dd>Yakınlaştır / uzaklaştır.</dd><dt><kbd>Home veya 0</kbd></dt><dd>Kamerayı sıfırla.</dd><dt><kbd>?</kbd></dt><dd>Bu kılavuzun Kontroller bölümünü aç / kapat.</dd><dt><kbd>F</kbd></dt><dd>Tam ekran (tarayıcı destekliyorsa).</dd><dt><kbd>Esc</kbd></dt><dd>Pencereyi, menüyü veya paneli kapat.</dd></dl>
+      <p class="note">Kamera yumuşak hareket eder; hızlı bırakırsanız bir süre dönmeye devam eder. Eğim 1°–179° arasındadır.</p>
+    </section>
+    <section id="presets">
+      <h2>Hazır ayarlar</h2>
+      <p>Hazır ayarlar tek dokunuşla spin, bakış açısı ve uzaklığı birlikte ayarlar. Diski açık bırakırlar; parlaklık, bloom gibi görüntü ayarlarınıza dokunmazlar.</p>
+      <dl class="terms"><dt>Schwarzschild yandan</dt><dd>Dönmeyen kara delik (a = 0), diske yandan (85°) bakış. Klasik “halka” görünümü.</dd><dt>Kerr a = 0,9</dt><dd>Hızlı dönen kara delik, 75° eğim. Diskin iki yanı belirgin biçimde farklı parlar.</dd><dt>Yüksek spin (a = 0,998)</dt><dd>Olabilecek en hızlı dönüşe yakın; disk ufka çok yaklaşır, gölge yamulur.</dd><dt>Yüzden bakış</dt><dd>Kutuptan (10°) bakış: disk neredeyse tam daire, ortada gölge.</dd></dl>
+    </section>
+    <section id="controls">
+      <h2>Kontroller</h2>
+      <p>Panelin üstündeki Basit | Gelişmiş anahtarı kontrol sayısını belirler. Seçiminiz bu cihazda hatırlanır. Her kontrolün yanındaki “?” düğmesi kısa bir açıklama gösterir.</p>
+      <h3>Basit mod</h3>
+      <dl class="terms"><dt>Spin (a)</dt><dd>Kara deliğin dönüş hızı, 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe disk içeri yaklaşır ve görüntü asimetrik olur.</dd><dt>Eğim</dt><dd>Bakış açınız. 0°’ye yakın: tepeden; 90°’ye yakın: diski yandan görürsünüz.</dd><dt>Uzaklık</dt><dd>Kara delikten uzaklığınız. “M” kara deliğin kütlesine bağlı uzunluk birimidir (M = GM/c²). Yakınken ışık çok daha fazla bükülür.</dd><dt>Disk sıcaklığı (Tmax)</dt><dd>Diskin en sıcak yerinin sıcaklığı, Kelvin. Düşük: kırmızı-turuncu; yüksek: beyaz-mavimsi.</dd><dt>Animasyon</dt><dd>Diskin dönüşünü canlandırır. Kapalıyken görüntü durağandır, pil daha az harcanır.</dd></dl>
+      <h3>Gelişmiş mod</h3>
+      <p>Gelişmiş modda tüm kontroller ve “Bilimsel bilgi” ekranı görünür. Kontroller kısa rozetlerle işaretlidir: FİZİKSEL (Kerr geodeziklerinden ve Page–Thorne disk modelinden gelir), ESTETİK (görsel hoşluk için; fiziksel öngörü değildir), GÖSTERİM (kamera, ölçek, performans; fiziksel içeriği değiştirmez).</p>
+      <dl class="terms"><dt>Disk dönüş yönü</dt><dd>Prograd: disk deliğin dönüşüyle aynı yönde. Retrograd: ters yönde (disk iç kenarı uzaklaşır).</dd><dt>Azimut</dt><dd>Kameranın kara deliğin etrafındaki konumu. Delik eksen simetrik olduğundan görüntüyü yalnızca disk deseni ve gökyüzü yönünde değiştirir.</dd><dt>Görüş alanı</dt><dd>Kameranın görüş açısı (derece). Fizik değişmez, yalnızca çerçeve.</dd><dt>Disk</dt><dd>Toplanma diskini açar/kapatır; kapalıyken yalnızca merceklenen gökyüzü görünür.</dd><dt>Dış yarıçap</dt><dd>Diskin dış kenarı (M). İç kenar her zaman kararlı en iç dairesel yörüngedir (ISCO).</dd><dt>Dış kenar yumuşatma</dt><dd>Dış kenarda ışımayı yumuşakça söndürür (estetik).</dd><dt>Renk düzeltmesi f_col</dt><dd>Gözlenen rengin etkin sıcaklığa oranı (yıldız kütleli kara delikler için yaklaşık 1,7).</dd><dt>Parlaklık modu</dt><dd>Band: görünür ışıkta fotometrik. Bolometrik: toplam ışınım.</dd><dt>Pozlama</dt><dd>Görüntüyü aydınlatır/karartır (EV). Yalnızca gösterim ölçeğidir; mutlak parlaklık kalibrasyonu değildir.</dd><dt>Ton eşleme</dt><dd>Çok parlak (HDR) görüntüyü ekrana sığdırma yöntemi: ACES, AgX, Nötr, Yok.</dd><dt>Bloom ve gücü</dt><dd>Parlak yerlerin etrafında saçılan ışık hâlesi (estetik).</dd><dt>Türbülans ve genliği</dt><dd>Diskte ince ışıma dokusu (estetik; fiziksel bir benzetim değildir).</dd><dt>Yıldızlar, Samanyolu</dt><dd>Arka plan gökyüzü. Işığın yönü ve renk kayması fiziksel; yıldız sayısı ve dağılımı estetiktir.</dd><dt>Zaman ölçeği</dt><dd>Animasyonun hızı (gerçek 1 saniyede ilerleyen simülasyon süresi).</dd><dt>Performans modu</dt><dd>Kalite / Dengeli / Pil: çözünürlük ve kare hızı için hazır tercih.</dd><dt>Işın izleme kalitesi</dt><dd>Yüksek: ince adım, daha doğru kenarlar. Mobil: yaklaşık 2–3 kat hızlı, kenarlarda biraz daha az doğru.</dd><dt>Çözünürlük ölçeği</dt><dd>Düşük değer hızlı ama bulanıktır.</dd></dl>
+      <h3>Bilimsel bilgi ekranı</h3>
+      <p>Gelişmiş modda, seçtiğiniz spin ve bakış açısı için olay ufku, foton yörüngesi, ISCO, ışınım verimi, gölge boyutu gibi değerler anında hesaplanır (G = c = 1, uzunluk M cinsinden). İsteğe bağlı olarak bir kütle girerseniz (örneğin 10 güneş kütlesi) uzunluklar kilometre olarak da gösterilir.</p>
+    </section>
+    <section id="seeing">
+      <h2>Ne görüyorsunuz?</h2>
+      <dl class="terms"><dt>Gölge</dt><dd>Ortadaki karanlık bölge. Kara deliğin ufkuna düşen ışınların geldiği yönlerdir; ufkun kendisinden daha büyüktür. Dönmeyen bir delikte gölgenin yarıçapı yaklaşık 5,2 M (ufuk 2 M).</dd><dt>Foton halkası</dt><dd>Gölgenin kenarındaki ince, parlak halka. Işık kara deliğin etrafında bir veya birkaç tur dönüp gözünüze ulaşır; ne kadar çok dolanırsa o kadar ince ve sönük bir halka oluşur.</dd><dt>Merceklenmiş disk</dt><dd>Kara deliğin arkasında kalan disk bölümünün ışığı delikle bükülerek üstte ve altta görünür hâle gelir. Bu yüzden yandan bakarken bile diskin “üst kemeri” gölgenin üzerinden aşar.</dd><dt>Doppler parlaması</dt><dd>Disk dönerken bir yanı size doğru, diğer yanı sizden uzağa hareket eder. Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Bu yüzden diskin iki yanı eşit parlamaz.</dd><dt>Kırmızıya kayma</dt><dd>Kütleçekimi kuyusundan çıkan ışık enerji kaybeder: ufka yakın bölgelerden gelen ışık daha kırmızı ve sönüktür. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.</dd><dt>Spin etkisi</dt><dd>Dönen deliklerde disk iç kenarı (ISCO) deliğe daha çok yaklaşır, disk daha sıcak ve parlak olur; gölge hafifçe yassılaşıp bir yana kayar.</dd></dl>
+      <p class="note">Renkler kara cisim ışımasına dayanır ve yaklaşıktır; bloom, türbülans dokusu ve yıldız dağılımı gibi görsel efektler estetiktir. Ayrıntı için Hakkında penceresine bakın.</p>
+    </section>
+    <section id="performance">
+      <h2>Performans ipuçları</h2>
+      <ul><li>Telefon ve tabletlerde uygulama otomatik olarak Mobil kalite ve Pil modunu seçer; ısınma ve pil tüketimi azalır.</li><li>Görüntü takılıyorsa Gelişmiş modda Çözünürlük ölçeğini düşürün veya Animasyonu kapatın.</li><li>Bloom ve Türbülans kapatılabilir; diğer ayarlar aynı kalır.</li><li>Kamerayı hareket ettirirken çözünürlük geçici olarak düşer, durunca netleşir: bu beklenen davranıştır.</li><li>iPhone/iPad’de Düşük Güç Modu ve cihaz ısındığında tarayıcı kare hızını kısabilir.</li><li>Kullanmadığınız sekmeleri kapatmak ekran kartı belleğini boşaltır.</li></ul>
+    </section>
+    <section id="install">
+      <h2>Uygulamayı yükleme</h2>
+      <p>Uygulamayı ana ekrana ekleyebilirsiniz; adres çubuğu olmadan tam ekran açılır ve çevrimdışı da çalışır.</p>
+      <dl class="terms"><dt>iPhone / iPad (Safari)</dt><dd>Paylaş düğmesine dokunun → “Ana Ekrana Ekle” → Ekle. (iOS’ta yalnızca Safari bu seçeneği sunar.)</dd><dt>Android (Chrome)</dt><dd>Menü (⋮) → “Uygulamayı yükle” veya “Ana ekrana ekle”. Ya da uygulamadaki “…” menüsünden “Uygulamayı yükle”.</dd><dt>Masaüstü (Chrome / Edge)</dt><dd>Adres çubuğundaki yükle simgesine tıklayın ya da uygulamadaki “…” menüsünden “Uygulamayı yükle”.</dd></dl>
+      <p class="note">İlk yüklemeden sonra uygulama internet olmadan da açılır. Yeni sürüm çıktığında “Yeni sürüm hazır” bildirimi görünür.</p>
+    </section>
+    <section id="trouble">
+      <h2>Sorun giderme</h2>
+      <dl class="terms"><dt>“Simülasyon başlatılamadı” / WebGL 2 yok</dt><dd>Simülasyon WebGL 2 gerektirir. Güncel bir tarayıcı kullanın (Safari 15+, Chrome, Edge, Firefox), tarayıcı ayarlarında donanım hızlandırmayı açın, pil tasarrufu modunu kapatın ve sayfayı yenileyin.</dd><dt>Görüntü yavaş veya takılıyor</dt><dd>Panelde Gelişmiş → Performans modu: Pil; Çözünürlük ölçeğini düşürün; Animasyon ve Bloom’u kapatın.</dd><dt>Siyah ekran</dt><dd>Önce kamerayı sıfırlayın (Sıfırla düğmesi). Disk ve yıldızlar kapalıysa sahne gerçekten siyah olabilir: Tüm ayarları sıfırlayın. Sürüyorsa sayfayı yenileyin.</dd><dt>“Grafik bağlamı kayboldu” ekranı</dt><dd>Tarayıcı ekran kartını geçici olarak geri aldı. Birkaç saniye bekleyin; gelmezse sayfayı yeniden yükleyin.</dd><dt>Eski sürüm görünüyor</dt><dd>Uygulamayı tamamen kapatıp yeniden açın veya “Yeni sürüm hazır” bildirimindeki Yenile’ye dokunun.</dd><dt>Ekran görüntüsü inmiyor</dt><dd>Tarayıcı indirmeye izin vermiyor olabilir. iOS’ta görüntü “Dosyalar” uygulamasına veya indirilenlere kaydedilir.</dd></dl>
+    </section>
+  </main>
+  <footer>
+    <p><a href="gizlilik.html">Gizlilik politikası</a> · <a href="./">Uygulamaya dön</a></p>
+    <p>Telif hakkı © 2026 kuzeycetin3806-debug — Tüm hakları saklıdır</p>
+    <p class="sign">App design by Kuzey Çetin</p>
+  </footer>
+</div>
+</body>
+</html>

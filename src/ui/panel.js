@@ -5,7 +5,9 @@ import { fixed, sig, sci, percent, signed } from './format.js';
 import { PRESETS } from './presets.js';
 import { computeInfo, INFO_ROWS, physicalUnits } from './info.js';
 import { rMinFor, R_MAX_UI } from './camera.js';
+import { iscoRadius } from '../physics/kerr.js';
 import { REFERENCE_MASSES } from '../physics/units.js';
+import { PREF_KEYS, readPref, writePref } from './prefs.js';
 
 const DEG = Math.PI / 180;
 const km = (x) => {
@@ -30,7 +32,7 @@ const SECTIONS = [
     id: 'bh',
     controls: [
       {
-        key: 'a', kind: 'range', badge: 'phys', min: 0, max: 0.998, step: 0.001,
+        key: 'a', kind: 'range', simple: true, badge: 'phys', min: 0, max: 0.998, step: 0.001,
         get: (p) => p.a, patch: (v) => ({ a: v }), fmt: (v) => fixed(v, 3),
       },
       {
@@ -44,7 +46,7 @@ const SECTIONS = [
     id: 'camera',
     controls: [
       {
-        key: 'thetaCam', kind: 'range', badge: 'view', min: 1, max: 179, step: 0.5,
+        key: 'thetaCam', kind: 'range', simple: true, badge: 'view', min: 1, max: 179, step: 0.5,
         get: (p) => p.thetaCam / DEG, patch: (v) => ({ thetaCam: v * DEG }), fmt: (v) => `${fixed(v, 1)}°`,
       },
       {
@@ -52,7 +54,7 @@ const SECTIONS = [
         get: (p) => ((((p.phiCam / DEG) % 360) + 360) % 360), patch: (v) => ({ phiCam: v * DEG }), fmt: (v) => `${fixed(v, 0)}°`,
       },
       {
-        key: 'rCam', kind: 'range', badge: 'view', dyn: (p) => logMap(rMinFor(p.a), R_MAX_UI), step: 1,
+        key: 'rCam', kind: 'range', simple: true, badge: 'view', dyn: (p) => logMap(rMinFor(p.a), R_MAX_UI), step: 1,
         get: (p, m) => m.fromValue(Math.min(R_MAX_UI, Math.max(rMinFor(p.a), p.rCam))),
         patch: (v, p, m) => ({ rCam: m.toValue(v) }),
         fmt: (v, p, ctx, m) => {
@@ -71,7 +73,7 @@ const SECTIONS = [
     controls: [
       { key: 'disk', kind: 'toggle', badge: 'phys', get: (p) => p.disk, patch: (v) => ({ disk: v }) },
       {
-        key: 'Tmax', kind: 'range', badge: 'phys', map: logMap(2000, 1e6), enabled: (p) => p.disk,
+        key: 'Tmax', kind: 'range', simple: true, badge: 'phys', map: logMap(2000, 1e6), enabled: (p) => p.disk,
         get: (p, m) => m.fromValue(p.Tmax), patch: (v, p, m) => ({ Tmax: m.toValue(v) }),
         fmt: (v, p, ctx, m) => `${sig(m.toValue(v), 3)} K`,
       },
@@ -123,7 +125,7 @@ const SECTIONS = [
         key: 'milkyWay', kind: 'range', badge: 'aest', min: 0, max: 2, step: 0.05,
         get: (p) => p.milkyWay, patch: (v) => ({ milkyWay: v }), fmt: (v) => fixed(v, 2),
       },
-      { key: 'animate', kind: 'toggle', badge: 'aest', get: (p) => p.animate, patch: (v) => ({ animate: v }) },
+      { key: 'animate', kind: 'toggle', simple: true, badge: 'aest', get: (p) => p.animate, patch: (v) => ({ animate: v }) },
       {
         key: 'timeScale', kind: 'range', badge: 'aest', min: 0, max: 200, step: 1, enabled: (p) => p.animate,
         get: (p) => p.timeScale, patch: (v) => ({ timeScale: v }),
@@ -152,6 +154,49 @@ const SECTIONS = [
   },
 ];
 
+// ------------------------------------------------------------------ hazır ayar küçük resmi
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Ön ayarın (a, eğim) değerlerinden çizilen şematik küçük resim (gösterim amaçlı, ölçekli değil): disk iç kenarı ISCO ile, eliptiklik bakış açısıyla orantılı. */
+function presetThumb({ a, thetaCam, prograde = true }) {
+  const rIsco = iscoRadius(1, a, prograde); // src/physics: diskin iç kenarı
+  const sh = 20; // gölge ≈ 5,2 M ↔ 20 px
+  const pxPerM = sh / 5.2;
+  const rI = Math.max(sh * 0.85, rIsco * pxPerM);
+  const ratio0 = Math.abs(Math.cos(thetaCam));
+  const rOut = 36 + 18 * (1 - ratio0); // yüzden bakışta disk kadraja sığar
+  const ratio = Math.max(0.1, Math.abs(Math.cos(thetaCam)));
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 120 76');
+  svg.setAttribute('class', 'preset-thumb');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const id = `pt-${Math.round(a * 1000)}-${Math.round(thetaCam * 100)}`;
+  const el = (tag, attrs, parent = svg) => {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const [k2, v] of Object.entries(attrs)) n.setAttribute(k2, String(v));
+    parent.append(n);
+    return n;
+  };
+  const defs = el('defs', {});
+  const g = el('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 0 }, defs);
+  const [c0, c1, c2] = prograde ? ['#fff3d8', '#ff9a3c', '#7a2a10'] : ['#7a2a10', '#ff9a3c', '#fff3d8'];
+  el('stop', { offset: 0, 'stop-color': c0 }, g); el('stop', { offset: 0.5, 'stop-color': c1 }, g); el('stop', { offset: 1, 'stop-color': c2 }, g);
+  el('rect', { width: 120, height: 76, fill: '#05070c' });
+  const cx = 60, cy = 38;
+  // merceklenmiş arka disk (gölgenin üstünden aşan yay)
+  if (ratio < 0.95) el('ellipse', { cx, cy, rx: sh * 1.22, ry: sh * 1.22, fill: 'none', stroke: `url(#${id})`, 'stroke-width': 3.2, opacity: 0.85 });
+  // gölge
+  el('circle', { cx, cy, r: sh, fill: '#000' });
+  // ön disk: halka (dış/iç elips)
+  const ring = el('path', { fill: `url(#${id})`, 'fill-rule': 'evenodd', opacity: 0.95 });
+  const e = (rx, ry, sgn) => `M ${cx - rx} ${cy} a ${rx} ${ry} 0 1 ${sgn} ${2 * rx} 0 a ${rx} ${ry} 0 1 ${sgn} ${-2 * rx} 0 Z`;
+  ring.setAttribute('d', e(rOut, rOut * ratio, 1) + ' ' + e(rI, rI * ratio, 1));
+  // gölgenin ön kısmı diskin arka yarısını örter
+  el('path', { d: `M ${cx - sh} ${cy} A ${sh} ${sh} 0 0 1 ${cx + sh} ${cy} Z`, fill: '#000' });
+  el('circle', { cx, cy, r: sh + 0.5, fill: 'none', stroke: '#fff3d8', 'stroke-width': 1.2, opacity: 0.9 });
+  return svg;
+}
+
 // ------------------------------------------------------------------ panel
 /**
  * @param {object} ctx {renderer, set(patch), getMass(), setMass(v), onClose(), onResetAll()}
@@ -165,10 +210,12 @@ export function createPanel(ctx) {
     h('span', { class: `badge ${kind}`, title: S.badgeTip[kind] }, S.badge[kind]);
 
   // ---- kontrol oluşturucular
-  function controlHead(def, outEl, forId) {
+  /** İpucu metni + "?" düğmesi. Basit modda sade metin (S.simpleTip), gelişmiş modda teknik metin gösterilir. */
+  function tipAndHelp(def) {
     const txt = S.controls[def.key];
     const tipId = `${idPrefix}-tip-${def.key}`;
-    const tip = h('p.ctl-tip', { id: tipId, hidden: true }, txt.tip);
+    const tip = h('p.ctl-tip', { id: tipId, hidden: true },
+      def.simple && S.simpleTip[def.key] ? [h('span.tip-simple', null, S.simpleTip[def.key]), h('span.tip-adv', null, txt.tip)] : txt.tip);
     const help = h(
       'button.ctl-help',
       {
@@ -181,6 +228,12 @@ export function createPanel(ctx) {
       },
       '?'
     );
+    return { tip, tipId, help };
+  }
+
+  function controlHead(def, outEl, forId) {
+    const txt = S.controls[def.key];
+    const { tip, help } = tipAndHelp(def);
     const head = h(
       'div.ctl-head',
       null,
@@ -198,7 +251,7 @@ export function createPanel(ctx) {
     const input = h('input', { type: 'range', id, min: def.min ?? 0, max: def.max ?? 1000, step: def.step ?? 1, 'data-key': def.key });
     const out = h('output.ctl-val', { for: id });
     const { head, tip } = controlHead(def, out, id);
-    const wrap = h('div.ctl', { 'data-ctl': def.key }, head, input, tip);
+    const wrap = h('div.ctl', { 'data-ctl': def.key, 'data-simple': def.simple ? '' : null }, head, input, tip);
     let dynMap = map;
     let userT = 0;
 
@@ -239,19 +292,10 @@ export function createPanel(ctx) {
     const id = `${idPrefix}-${def.key}`;
     const txt = S.controls[def.key];
     const input = h('input', { type: 'checkbox', role: 'switch', id, 'data-key': def.key });
-    const tipId = `${idPrefix}-tip-${def.key}`;
-    const tip = h('p.ctl-tip', { id: tipId, hidden: true }, txt.tip);
-    const help = h('button.ctl-help', {
-      type: 'button', 'aria-label': `${txt.label}: ${S.panel.help}`, 'aria-expanded': 'false', 'aria-controls': tipId,
-      onClick: (e) => {
-        const open = tip.hidden;
-        tip.hidden = !open;
-        e.currentTarget.setAttribute('aria-expanded', String(open));
-      },
-    }, '?');
+    const { tip, help } = tipAndHelp(def);
     const row = h(
       'div.ctl.ctl-toggle',
-      { 'data-ctl': def.key },
+      { 'data-ctl': def.key, 'data-simple': def.simple ? '' : null },
       h('div.ctl-head', null,
         h('label.switch', { for: id }, input, h('span.track', null, h('span.knob')), h('span.ctl-label', null, txt.label)),
         badge(def.badge), help),
@@ -265,16 +309,7 @@ export function createPanel(ctx) {
   function buildSeg(def) {
     const txt = S.controls[def.key];
     const name = `${idPrefix}-${def.key}`;
-    const tipId = `${idPrefix}-tip-${def.key}`;
-    const tip = h('p.ctl-tip', { id: tipId, hidden: true }, txt.tip);
-    const help = h('button.ctl-help', {
-      type: 'button', 'aria-label': `${txt.label}: ${S.panel.help}`, 'aria-expanded': 'false', 'aria-controls': tipId,
-      onClick: (e) => {
-        const open = tip.hidden;
-        tip.hidden = !open;
-        e.currentTarget.setAttribute('aria-expanded', String(open));
-      },
-    }, '?');
+    const { tip, tipId, help } = tipAndHelp(def);
     const inputs = def.options.map(([optKey, value]) => {
       const id = `${name}-${optKey}`;
       const input = h('input', { type: 'radio', name, id, value: optKey, 'data-key': def.key });
@@ -307,9 +342,11 @@ export function createPanel(ctx) {
     return d;
   }
 
-  // ---- hazır ayarlar
+  // ---- hazır ayarlar (görsel kartlar: küçük resim, ön ayarın gerçek a / eğim değerlerinden çizilir)
   const presetBtns = PRESETS.map((pr) =>
-    h('button.btn.preset', { type: 'button', 'data-preset': pr.id, onClick: () => ctx.applyPreset(pr.patch) }, S.presets[pr.id])
+    h('button.btn.preset', { type: 'button', 'data-preset': pr.id, onClick: () => ctx.applyPreset(pr.patch) },
+      presetThumb(pr.patch),
+      h('span.preset-name', null, S.presets[pr.id]))
   );
 
   // ---- bilgi bölümü
@@ -416,9 +453,14 @@ export function createPanel(ctx) {
   }
 
   // ---- sayfaya dizilim
-  const legend = h('div.legend', null, h('span.legend-t', null, S.panel.badgeLegend), badge('phys'), badge('aest'), badge('view'));
-  const sections = SECTIONS.map((s) => section(s.id, S.sections[s.id], s.controls.map(build)));
+  const legend = h('div.legend.adv-only', null, h('span.legend-t', null, S.panel.badgeLegend), badge('phys'), badge('aest'), badge('view'));
+  const sections = SECTIONS.map((s) => {
+    const sec = section(s.id, S.sections[s.id], s.controls.map(build));
+    if (s.controls.some((c) => c.simple)) sec.classList.add('has-simple');
+    return sec;
+  });
   const presetSec = section('presets', S.sections.presets, [h('div.presets', null, ...presetBtns)]);
+  presetSec.classList.add('has-simple');
   const infoSec = section('info', S.sections.info, infoSection, { open: false, cls: 'sec-info' });
   const statsSec = section('stats', S.sections.stats, statsBody, { open: false, cls: 'sec-stats' });
 
@@ -428,12 +470,48 @@ export function createPanel(ctx) {
     handle,
     h('div.panel-titles', null, h('h1', null, S.appTitle), h('p', null, S.appSubtitle)),
     closeBtn);
-  const footer = h('footer.panel-foot', null,
-    h('button.btn.reset-all', { type: 'button', onClick: () => ctx.onResetAll() }, icon(...ICONS.reset), S.panel.resetAll));
 
-  const el = h('aside#panel.panel', { 'aria-label': S.panel.label, 'data-no-camera-keys': '' },
-    header,
-    h('div.panel-scroll', { tabindex: '-1' }, legend, presetSec, ...sections, infoSec, statsSec, footer));
+  // ---- Basit | Gelişmiş (iOS tarzı segmentli kontrol; seçim localStorage'da hatırlanır)
+  const modeInputs = ['simple', 'advanced'].map((m) => {
+    const id = `${idPrefix}-mode-${m}`;
+    const input = h('input', { type: 'radio', name: `${idPrefix}-mode`, id, value: m, 'data-key': 'mode' });
+    input.addEventListener('change', () => { if (input.checked) setMode(m); });
+    return { m, input, label: h('label', { for: id }, m === 'simple' ? S.panel.modeSimple : S.panel.modeAdvanced) };
+  });
+  const modeBar = h('fieldset.modebar', null,
+    h('legend.sr-only', null, S.panel.modeLabel),
+    h('div.seg.seg-mode', null, ...modeInputs.flatMap(({ input, label }) => [input, label])));
+
+  const footer = h('footer.panel-foot', null,
+    h('button.btn.reset-all', { type: 'button', onClick: () => ctx.onResetAll() }, icon(...ICONS.reset), S.panel.resetAll),
+    h('p.panel-sign', null, S.app.designer));
+
+  const scroll = h('div.panel-scroll', { tabindex: '-1' }, legend, presetSec, ...sections, infoSec, statsSec, footer);
+  const el = h('aside#panel.panel', { 'aria-label': S.panel.label, 'data-no-camera-keys': '', 'data-mode': 'simple' },
+    header, modeBar, scroll);
+
+  // Basit modda bölüm başlıkları gizlenir ve temel kontrolleri içeren bölümler açık zorlanır; gelişmişe dönünce
+  // kullanıcının bölüm açık/kapalı durumu geri yüklenir. Hiçbir kontrol silinmez: yalnız görünürlük değişir.
+  let mode = 'simple';
+  function setMode(m, { persist = true } = {}) {
+    m = m === 'advanced' ? 'advanced' : 'simple';
+    const prev = mode;
+    mode = m;
+    el.dataset.mode = m;
+    document.body.dataset.uiMode = m;
+    for (const mi of modeInputs) mi.input.checked = mi.m === m;
+    const secs = el.querySelectorAll('.sec');
+    if (m === 'simple' && prev !== 'simple') {
+      secs.forEach((d) => { d.dataset.advOpen = d.open ? '1' : '0'; if (d.classList.contains('has-simple')) d.open = true; });
+    } else if (m === 'advanced' && prev === 'simple') {
+      secs.forEach((d) => { if (d.dataset.advOpen !== undefined) d.open = d.dataset.advOpen === '1'; });
+    }
+    if (persist) writePref(PREF_KEYS.mode, m);
+    ctx.onModeChange?.(m);
+  }
+  // başlangıç: kayıtlı tercih (yoksa Basit). prev='advanced' verilerek ilk geçişte durum kaydı yapılır.
+  mode = 'advanced';
+  setMode(readPref(PREF_KEYS.mode) === 'advanced' ? 'advanced' : 'simple', { persist: false });
 
   let statsTimer = 0;
   function startStats() {
@@ -451,7 +529,7 @@ export function createPanel(ctx) {
   }
 
   return {
-    el, closeBtn, header, refresh,
+    el, closeBtn, header, refresh, setMode, getMode: () => mode,
     startStats, stopStats,
     invalidateInfo: () => { lastInfoKey = ''; },
     setMassText: (v) => { massInput.value = v == null ? '' : String(v); },

@@ -17,15 +17,19 @@ export const S = {
     screenshot: 'Ekran görüntüsü indir',
     fullscreen: 'Tam ekran',
     exitFullscreen: 'Tam ekrandan çık',
-    help: 'Yardım ve kısayollar (?)',
+    guide: 'Kılavuz',
     about: 'Hakkında',
+    privacy: 'Gizlilik politikası',
     install: 'Uygulamayı yükle',
+    more: 'Diğer işlemler',
+    menuLabel: 'Diğer işlemler menüsü',
     utilLabel: 'Uygulama araçları',
   },
 
   app: {
     version: 'Sürüm',
     copyright: 'Telif hakkı © 2026 kuzeycetin3806-debug — Tüm hakları saklıdır',
+    designer: 'App design by Kuzey Çetin',
     close: 'Kapat',
     splash: { load: 'Yükleniyor…', init: 'Işın izleyici hazırlanıyor…', shader: 'Shader derleniyor, ilk kare çiziliyor…', ready: 'Hazır' },
     update: { text: 'Yeni sürüm hazır', action: 'Yenile', dismiss: 'Sonra' },
@@ -47,14 +51,246 @@ export const S = {
     },
   },
 
-  help: {
-    title: 'Yardım ve kısayollar',
-    groups: [
-      { title: 'Fare', rows: [['Sürükle', 'Kamerayı kara delik çevresinde döndür (yörünge)'], ['Tekerlek', 'Yakınlaştır / uzaklaştır'], ['Çift tıkla', 'Kamerayı sıfırla']] },
-      { title: 'Dokunmatik', rows: [['Tek parmak sürükle', 'Yörünge'], ['İki parmak aç/kıs (pinch)', 'Yakınlaştır / uzaklaştır'], ['Çift dokun', 'Kamerayı sıfırla']] },
-      { title: 'Klavye', rows: [['← →  ↑ ↓', 'Yörünge (azimut / eğim)'], ['+  −  (PgUp / PgDn)', 'Yakınlaştır / uzaklaştır'], ['Home veya 0', 'Kamerayı sıfırla'], ['?', 'Bu yardım penceresi'], ['F', 'Tam ekran (destekleniyorsa)'], ['Esc', 'Pencereyi / paneli kapat']] },
+  // ---- Kılavuz ve gizlilik içeriği: tek kaynak. Uygulama içi pencereler (dialogs.js) ve bağımsız sayfalar
+  // (public/kilavuz.html, public/gizlilik.html — tests/ui/make-pages.mjs üretir) AYNI veriyi kullanır.
+  // Blok biçimi: ['p', metin] · ['h', alt başlık] · ['ul', [metin…]] · ['dl', [[terim, açıklama]…]] · ['keys', [[tuş, açıklama]…]]
+  //              · ['note', metin] · ['links', [[etiket, adres]…]]
+  guide: {
+    title: 'Kullanım kılavuzu',
+    lead: 'Dönen (Kerr) bir kara deliğin çevresinde ışığın nasıl büküldüğünü gerçek zamanlı keşfedin.',
+    toc: 'Bölümler',
+    openFull: 'Tam sayfa aç',
+    backToApp: 'Uygulamaya dön',
+    print: 'Yazdır',
+    sections: [
+      {
+        id: 'start', title: 'Başlarken',
+        blocks: [
+          ['p', 'Bu uygulama, bir kara deliğin çevresindeki ışığın izlediği yolu her piksel için geriye doğru hesaplayarak (ışın izleme) görüntü üretir. Hesap cihazınızın ekran kartında yapılır; internet bağlantısı gerekmez.'],
+          ['ul', [
+            'Sahneyi sürükleyerek kara deliğin çevresinde dönün; iki parmakla (veya fare tekerleğiyle) yakınlaşın.',
+            'Ayarlar düğmesiyle paneli açın ve bir hazır ayar seçin.',
+            'İsterseniz Spin, Eğim, Uzaklık ve Disk sıcaklığı kaydırıcılarıyla görüntüyü değiştirin.',
+            'Kamera düğmesi ekran görüntüsü kaydeder; “…” menüsünde Kılavuz, Hakkında, Gizlilik ve Tam ekran bulunur.',
+          ]],
+        ],
+      },
+      {
+        id: 'camera', title: 'Kamerayı kontrol etme',
+        blocks: [
+          ['h', 'Fare'],
+          ['keys', [['Sürükle', 'Kamerayı kara deliğin çevresinde döndürür (yörünge).'], ['Tekerlek', 'Yakınlaştırır / uzaklaştırır.'], ['Çift tıkla', 'Kamerayı başlangıç konumuna alır.']]],
+          ['h', 'Dokunmatik ekran'],
+          ['keys', [['Tek parmak sürükle', 'Yörünge.'], ['İki parmak aç/kıs', 'Yakınlaştır / uzaklaştır.'], ['Çift dokun', 'Kamerayı sıfırlar.']]],
+          ['h', 'Klavye'],
+          ['keys', [['← → ↑ ↓', 'Yörünge (yatay: azimut, dikey: eğim). Önce sahneye odaklanın (Tab).'], ['+  −  (PgUp / PgDn)', 'Yakınlaştır / uzaklaştır.'], ['Home veya 0', 'Kamerayı sıfırla.'], ['?', 'Bu kılavuzun Kontroller bölümünü aç / kapat.'], ['F', 'Tam ekran (tarayıcı destekliyorsa).'], ['Esc', 'Pencereyi, menüyü veya paneli kapat.']]],
+          ['note', 'Kamera yumuşak hareket eder; hızlı bırakırsanız bir süre dönmeye devam eder. Eğim 1°–179° arasındadır.'],
+        ],
+      },
+      {
+        id: 'presets', title: 'Hazır ayarlar',
+        blocks: [
+          ['p', 'Hazır ayarlar tek dokunuşla spin, bakış açısı ve uzaklığı birlikte ayarlar. Diski açık bırakırlar; parlaklık, bloom gibi görüntü ayarlarınıza dokunmazlar.'],
+          ['dl', [
+            ['Schwarzschild yandan', 'Dönmeyen kara delik (a = 0), diske yandan (85°) bakış. Klasik “halka” görünümü.'],
+            ['Kerr a = 0,9', 'Hızlı dönen kara delik, 75° eğim. Diskin iki yanı belirgin biçimde farklı parlar.'],
+            ['Yüksek spin (a = 0,998)', 'Olabilecek en hızlı dönüşe yakın; disk ufka çok yaklaşır, gölge yamulur.'],
+            ['Yüzden bakış', 'Kutuptan (10°) bakış: disk neredeyse tam daire, ortada gölge.'],
+          ]],
+        ],
+      },
+      {
+        id: 'controls', title: 'Kontroller',
+        blocks: [
+          ['p', 'Panelin üstündeki Basit | Gelişmiş anahtarı kontrol sayısını belirler. Seçiminiz bu cihazda hatırlanır. Her kontrolün yanındaki “?” düğmesi kısa bir açıklama gösterir.'],
+          ['h', 'Basit mod'],
+          ['dl', [
+            ['Spin (a)', 'Kara deliğin dönüş hızı, 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe disk içeri yaklaşır ve görüntü asimetrik olur.'],
+            ['Eğim', 'Bakış açınız. 0°’ye yakın: tepeden; 90°’ye yakın: diski yandan görürsünüz.'],
+            ['Uzaklık', 'Kara delikten uzaklığınız. “M” kara deliğin kütlesine bağlı uzunluk birimidir (M = GM/c²). Yakınken ışık çok daha fazla bükülür.'],
+            ['Disk sıcaklığı (Tmax)', 'Diskin en sıcak yerinin sıcaklığı, Kelvin. Düşük: kırmızı-turuncu; yüksek: beyaz-mavimsi.'],
+            ['Animasyon', 'Diskin dönüşünü canlandırır. Kapalıyken görüntü durağandır, pil daha az harcanır.'],
+          ]],
+          ['h', 'Gelişmiş mod'],
+          ['p', 'Gelişmiş modda tüm kontroller ve “Bilimsel bilgi” ekranı görünür. Kontroller kısa rozetlerle işaretlidir: FİZİKSEL (Kerr geodeziklerinden ve Page–Thorne disk modelinden gelir), ESTETİK (görsel hoşluk için; fiziksel öngörü değildir), GÖSTERİM (kamera, ölçek, performans; fiziksel içeriği değiştirmez).'],
+          ['dl', [
+            ['Disk dönüş yönü', 'Prograd: disk deliğin dönüşüyle aynı yönde. Retrograd: ters yönde (disk iç kenarı uzaklaşır).'],
+            ['Azimut', 'Kameranın kara deliğin etrafındaki konumu. Delik eksen simetrik olduğundan görüntüyü yalnızca disk deseni ve gökyüzü yönünde değiştirir.'],
+            ['Görüş alanı', 'Kameranın görüş açısı (derece). Fizik değişmez, yalnızca çerçeve.'],
+            ['Disk', 'Toplanma diskini açar/kapatır; kapalıyken yalnızca merceklenen gökyüzü görünür.'],
+            ['Dış yarıçap', 'Diskin dış kenarı (M). İç kenar her zaman kararlı en iç dairesel yörüngedir (ISCO).'],
+            ['Dış kenar yumuşatma', 'Dış kenarda ışımayı yumuşakça söndürür (estetik).'],
+            ['Renk düzeltmesi f_col', 'Gözlenen rengin etkin sıcaklığa oranı (yıldız kütleli kara delikler için yaklaşık 1,7).'],
+            ['Parlaklık modu', 'Band: görünür ışıkta fotometrik. Bolometrik: toplam ışınım.'],
+            ['Pozlama', 'Görüntüyü aydınlatır/karartır (EV). Yalnızca gösterim ölçeğidir; mutlak parlaklık kalibrasyonu değildir.'],
+            ['Ton eşleme', 'Çok parlak (HDR) görüntüyü ekrana sığdırma yöntemi: ACES, AgX, Nötr, Yok.'],
+            ['Bloom ve gücü', 'Parlak yerlerin etrafında saçılan ışık hâlesi (estetik).'],
+            ['Türbülans ve genliği', 'Diskte ince ışıma dokusu (estetik; fiziksel bir benzetim değildir).'],
+            ['Yıldızlar, Samanyolu', 'Arka plan gökyüzü. Işığın yönü ve renk kayması fiziksel; yıldız sayısı ve dağılımı estetiktir.'],
+            ['Zaman ölçeği', 'Animasyonun hızı (gerçek 1 saniyede ilerleyen simülasyon süresi).'],
+            ['Performans modu', 'Kalite / Dengeli / Pil: çözünürlük ve kare hızı için hazır tercih.'],
+            ['Işın izleme kalitesi', 'Yüksek: ince adım, daha doğru kenarlar. Mobil: yaklaşık 2–3 kat hızlı, kenarlarda biraz daha az doğru.'],
+            ['Çözünürlük ölçeği', 'Düşük değer hızlı ama bulanıktır.'],
+          ]],
+          ['h', 'Bilimsel bilgi ekranı'],
+          ['p', 'Gelişmiş modda, seçtiğiniz spin ve bakış açısı için olay ufku, foton yörüngesi, ISCO, ışınım verimi, gölge boyutu gibi değerler anında hesaplanır (G = c = 1, uzunluk M cinsinden). İsteğe bağlı olarak bir kütle girerseniz (örneğin 10 güneş kütlesi) uzunluklar kilometre olarak da gösterilir.'],
+        ],
+      },
+      {
+        id: 'seeing', title: 'Ne görüyorsunuz?',
+        blocks: [
+          ['dl', [
+            ['Gölge', 'Ortadaki karanlık bölge. Kara deliğin ufkuna düşen ışınların geldiği yönlerdir; ufkun kendisinden daha büyüktür. Dönmeyen bir delikte gölgenin yarıçapı yaklaşık 5,2 M (ufuk 2 M).'],
+            ['Foton halkası', 'Gölgenin kenarındaki ince, parlak halka. Işık kara deliğin etrafında bir veya birkaç tur dönüp gözünüze ulaşır; ne kadar çok dolanırsa o kadar ince ve sönük bir halka oluşur.'],
+            ['Merceklenmiş disk', 'Kara deliğin arkasında kalan disk bölümünün ışığı delikle bükülerek üstte ve altta görünür hâle gelir. Bu yüzden yandan bakarken bile diskin “üst kemeri” gölgenin üzerinden aşar.'],
+            ['Doppler parlaması', 'Disk dönerken bir yanı size doğru, diğer yanı sizden uzağa hareket eder. Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Bu yüzden diskin iki yanı eşit parlamaz.'],
+            ['Kırmızıya kayma', 'Kütleçekimi kuyusundan çıkan ışık enerji kaybeder: ufka yakın bölgelerden gelen ışık daha kırmızı ve sönüktür. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.'],
+            ['Spin etkisi', 'Dönen deliklerde disk iç kenarı (ISCO) deliğe daha çok yaklaşır, disk daha sıcak ve parlak olur; gölge hafifçe yassılaşıp bir yana kayar.'],
+          ]],
+          ['note', 'Renkler kara cisim ışımasına dayanır ve yaklaşıktır; bloom, türbülans dokusu ve yıldız dağılımı gibi görsel efektler estetiktir. Ayrıntı için Hakkında penceresine bakın.'],
+        ],
+      },
+      {
+        id: 'performance', title: 'Performans ipuçları',
+        blocks: [
+          ['ul', [
+            'Telefon ve tabletlerde uygulama otomatik olarak Mobil kalite ve Pil modunu seçer; ısınma ve pil tüketimi azalır.',
+            'Görüntü takılıyorsa Gelişmiş modda Çözünürlük ölçeğini düşürün veya Animasyonu kapatın.',
+            'Bloom ve Türbülans kapatılabilir; diğer ayarlar aynı kalır.',
+            'Kamerayı hareket ettirirken çözünürlük geçici olarak düşer, durunca netleşir: bu beklenen davranıştır.',
+            'iPhone/iPad’de Düşük Güç Modu ve cihaz ısındığında tarayıcı kare hızını kısabilir.',
+            'Kullanmadığınız sekmeleri kapatmak ekran kartı belleğini boşaltır.',
+          ]],
+        ],
+      },
+      {
+        id: 'install', title: 'Uygulamayı yükleme',
+        blocks: [
+          ['p', 'Uygulamayı ana ekrana ekleyebilirsiniz; adres çubuğu olmadan tam ekran açılır ve çevrimdışı da çalışır.'],
+          ['dl', [
+            ['iPhone / iPad (Safari)', 'Paylaş düğmesine dokunun → “Ana Ekrana Ekle” → Ekle. (iOS’ta yalnızca Safari bu seçeneği sunar.)'],
+            ['Android (Chrome)', 'Menü (⋮) → “Uygulamayı yükle” veya “Ana ekrana ekle”. Ya da uygulamadaki “…” menüsünden “Uygulamayı yükle”.'],
+            ['Masaüstü (Chrome / Edge)', 'Adres çubuğundaki yükle simgesine tıklayın ya da uygulamadaki “…” menüsünden “Uygulamayı yükle”.'],
+          ]],
+          ['note', 'İlk yüklemeden sonra uygulama internet olmadan da açılır. Yeni sürüm çıktığında “Yeni sürüm hazır” bildirimi görünür.'],
+        ],
+      },
+      {
+        id: 'trouble', title: 'Sorun giderme',
+        blocks: [
+          ['dl', [
+            ['“Simülasyon başlatılamadı” / WebGL 2 yok', 'Simülasyon WebGL 2 gerektirir. Güncel bir tarayıcı kullanın (Safari 15+, Chrome, Edge, Firefox), tarayıcı ayarlarında donanım hızlandırmayı açın, pil tasarrufu modunu kapatın ve sayfayı yenileyin.'],
+            ['Görüntü yavaş veya takılıyor', 'Panelde Gelişmiş → Performans modu: Pil; Çözünürlük ölçeğini düşürün; Animasyon ve Bloom’u kapatın.'],
+            ['Siyah ekran', 'Önce kamerayı sıfırlayın (Sıfırla düğmesi). Disk ve yıldızlar kapalıysa sahne gerçekten siyah olabilir: Tüm ayarları sıfırlayın. Sürüyorsa sayfayı yenileyin.'],
+            ['“Grafik bağlamı kayboldu” ekranı', 'Tarayıcı ekran kartını geçici olarak geri aldı. Birkaç saniye bekleyin; gelmezse sayfayı yeniden yükleyin.'],
+            ['Eski sürüm görünüyor', 'Uygulamayı tamamen kapatıp yeniden açın veya “Yeni sürüm hazır” bildirimindeki Yenile’ye dokunun.'],
+            ['Ekran görüntüsü inmiyor', 'Tarayıcı indirmeye izin vermiyor olabilir. iOS’ta görüntü “Dosyalar” uygulamasına veya indirilenlere kaydedilir.'],
+          ]],
+        ],
+      },
     ],
-    badges: 'Rozetler: FİZİKSEL = Kerr geodeziklerinden/Page–Thorne modelinden gelir; ESTETİK = görsel hoşluk için, öngörü değildir; GÖSTERİM = kamera, ölçek, performans.',
+  },
+
+  privacy: {
+    title: 'Gizlilik politikası',
+    appName: 'Kara Delik Simülasyonu',
+    effective: 'Yürürlük tarihi: 7 Kasım 2026',
+    openFull: 'Tam sayfa aç',
+    backToApp: 'Uygulamaya dön',
+    print: 'Yazdır',
+    repoUrl: 'https://github.com/kuzeycetin3806-debug/Karadelikprojesi',
+    githubPrivacyUrl: 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement',
+    sections: [
+      {
+        id: 'summary', title: 'Özet',
+        blocks: [
+          ['p', 'Kara Delik Simülasyonu kişisel verilerinizi toplamaz, saklamaz, satmaz ve paylaşmaz. Hesap, giriş, reklam, analitik veya çerez yoktur. Tüm hesaplamalar cihazınızda yapılır.'],
+        ],
+      },
+      {
+        id: 'who', title: 'Sorumlu',
+        blocks: [
+          ['p', 'Uygulamanın tasarımı ve geliştirilmesi: Kuzey Çetin.'],
+        ],
+      },
+      {
+        id: 'data', title: 'Hangi veriler toplanmaz?',
+        blocks: [
+          ['ul', [
+            'Ad, e-posta, konum, kimlik, fotoğraf, kişi listesi gibi kişisel veriler istenmez ve toplanmaz.',
+            'Kamera, mikrofon, konum veya benzeri cihaz izinleri istenmez.',
+            'Analitik, reklam, izleme veya hata raporlama hizmeti kullanılmaz; çerez kullanılmaz.',
+            'Harici yazı tipi, CDN veya üçüncü taraf betik kullanılmaz: uygulama yalnızca kendi adresindeki dosyaları yükler. Sistem yazı tipleri kullanılır.',
+          ]],
+        ],
+      },
+      {
+        id: 'storage', title: 'Cihazınızda saklananlar',
+        blocks: [
+          ['p', 'Uygulama, tercihlerinizi hatırlamak için tarayıcının yerel depolamasını (localStorage) kullanır. Bu bilgiler yalnızca cihazınızda kalır, hiçbir yere gönderilmez ve kimliğinizle ilişkilendirilmez. Anahtarlar:'],
+          ['dl', [
+            ['karadelik.uiMode', 'Panel görünümü seçiminiz (Basit veya Gelişmiş).'],
+            ['karadelik.tipSeen', '“Nasıl kullanılır” ipucunun kapatıldığı.'],
+            ['karadelik.iosHintDismissed', 'iPhone/iPad’de “Ana Ekrana Ekle” ipucunun kapatıldığı.'],
+          ]],
+          ['p', 'Tarayıcınızın site verilerini temizleyerek bunları silebilirsiniz.'],
+        ],
+      },
+      {
+        id: 'cache', title: 'Çevrimdışı önbellek',
+        blocks: [
+          ['p', 'Uygulama çevrimdışı çalışabilmek için bir service worker ve cihaz önbelleği kullanır. Önbellekte yalnızca uygulama dosyaları (sayfa, betik, stil, simgeler, kılavuz ve bu sayfa) bulunur; kişisel veri bulunmaz. Site verilerini temizleyerek veya uygulamayı kaldırarak silinir.'],
+        ],
+      },
+      {
+        id: 'screenshots', title: 'Ekran görüntüleri',
+        blocks: [
+          ['p', 'Ekran görüntüsü yalnızca cihazınızda oluşturulur ve indirilir; hiçbir sunucuya yüklenmez.'],
+        ],
+      },
+      {
+        id: 'hosting', title: 'Barındırma',
+        blocks: [
+          ['p', 'Uygulama GitHub Pages üzerinde barındırılır. Siteyi açtığınızda GitHub, kendi sunucu günlüklerinde IP adresi ve tarayıcı bilgisi gibi teknik verileri işleyebilir. Bu işleme GitHub’ın sorumluluğundadır ve GitHub Gizlilik Bildirimi’ne tabidir.'],
+          ['links', [['GitHub Genel Gizlilik Bildirimi', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement']]],
+        ],
+      },
+      {
+        id: 'children', title: 'Çocukların gizliliği',
+        blocks: [
+          ['p', 'Uygulama kimseden, çocuklar dahil, kişisel veri toplamaz. Çocuklardan bilerek veri toplamayız.'],
+        ],
+      },
+      {
+        id: 'changes', title: 'Değişiklikler',
+        blocks: [
+          ['p', 'Bu politika değişirse bu sayfa güncellenir ve yürürlük tarihi değişir. Güncel metin her zaman uygulamanın içinden ve bu sayfadan okunabilir.'],
+        ],
+      },
+      {
+        id: 'contact', title: 'İletişim',
+        blocks: [
+          ['p', 'Sorularınız için projenin GitHub deposu üzerinden bir konu (issue) açabilirsiniz.'],
+          ['links', [['GitHub deposu', 'https://github.com/kuzeycetin3806-debug/Karadelikprojesi']]],
+          ['note', 'Bu metin sade bir bilgilendirmedir; hukuki danışmanlık yerine geçmez.'],
+        ],
+      },
+    ],
+    en: {
+      id: 'english', lang: 'en', title: 'Privacy summary (English)',
+      blocks: [
+        ['p', 'Black Hole Simulation does not collect, store, sell or share personal data. There are no accounts, ads, analytics, cookies or third-party scripts, fonts or CDNs; all computation runs on your device.'],
+        ['ul', [
+          'Local storage (on your device only): karadelik.uiMode (Basic/Advanced panel choice), karadelik.tipSeen and karadelik.iosHintDismissed (dismissed tips).',
+          'Offline cache: a service worker caches only the app files so the app works offline.',
+          'Screenshots are created and saved on your device only; nothing is uploaded.',
+          'Hosting: GitHub Pages. GitHub may process technical data such as your IP address in its server logs, under the GitHub General Privacy Statement.',
+          'Children: no personal data is collected from anyone, including children.',
+        ]],
+        ['p', 'Effective date: 7 November 2026. Responsible: Kuzey Çetin. Contact: via the GitHub repository (no email address is published).'],
+        ['links', [['GitHub repository', 'https://github.com/kuzeycetin3806-debug/Karadelikprojesi'], ['GitHub General Privacy Statement', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement']]],
+      ],
+    },
   },
 
   about: {
@@ -74,7 +310,10 @@ export const S = {
       'Luminet, J.-P. (1979). Image of a spherical black hole with thin accretion disk. A&A 75, 228.',
     ],
     note: 'Ayrıntılı denklemler ve sınır testleri: docs/physics/.',
-    privacy: 'Tüm hesap cihazınızda yapılır; veri toplanmaz veya gönderilmez.',
+    privacy: 'Tüm hesap cihazınızda yapılır; kişisel veri toplanmaz veya gönderilmez.',
+    linksTitle: 'Belgeler',
+    openGuide: 'Kullanım kılavuzu',
+    openPrivacy: 'Gizlilik politikası',
     installTitle: 'Uygulama olarak kur',
     installText: 'Chrome/Edge: adres çubuğundaki yükle simgesi veya araç çubuğundaki düğme. iOS/iPadOS Safari: Paylaş → Ana Ekrana Ekle. Kurulduktan sonra çevrimdışı da çalışır.',
   },
@@ -85,6 +324,20 @@ export const S = {
     badgeLegend: 'Rozetler:',
     help: 'Açıklamayı göster/gizle',
     sheetHandle: 'Paneli sürükleme tutamacı',
+    modeLabel: 'Panel görünümü',
+    modeSimple: 'Basit',
+    modeAdvanced: 'Gelişmiş',
+    modeSimpleHint: 'Hazır ayarlar ve dört temel kontrol.',
+    modeAdvancedHint: 'Tüm kontroller ve bilimsel bilgi ekranı.',
+  },
+
+  tip: {
+    title: 'Nasıl kullanılır?',
+    drag: ['Sürükleyin', 'Kara deliğin çevresinde dönün'],
+    pinch: ['İki parmakla yakınlaştırın', 'Fare ile tekerlek'],
+    settings: ['Ayarlar', 'Hazır ayarları ve kontrolleri açın'],
+    ok: 'Anladım',
+    label: 'Kısa kullanım ipucu',
   },
 
   badge: {
@@ -100,6 +353,7 @@ export const S = {
 
   sections: {
     presets: 'Hazır ayarlar',
+    simple: 'Temel kontroller',
     bh: 'Kara delik',
     camera: 'Kamera',
     disk: 'Disk',
@@ -142,6 +396,14 @@ export const S = {
     performance: { label: 'Performans modu', tip: 'Etkileşim çözünürlüğü, biriktirilen kare sayısı ve animasyon kare hızı için ön ayar.', options: { quality: 'Kalite', balanced: 'Dengeli', battery: 'Pil' } },
     quality: { label: 'Işın izleme kalitesi', tip: 'Yüksek: ince adım (κ = 0,05, 512 adım). Mobil: κ = 0,10, 256 adım (~2–3× hızlı, kenarlarda biraz daha az doğru).', options: { high: 'Yüksek', mobile: 'Mobil' } },
     resolutionScale: { label: 'Çözünürlük ölçeği', tip: 'Durağan iz sürme çözünürlüğü / tuval çözünürlüğü. Düşük değer hızlıdır, bulanıktır.' },
+  },
+
+  simpleTip: {
+    a: 'Kara deliğin ne kadar hızlı döndüğü. 0 = dönmüyor; büyüdükçe disk deliğe yaklaşır ve görüntü yamulur.',
+    thetaCam: 'Kara deliğe hangi açıdan baktığınız. Küçük değer: tam tepeden (disk yuvarlak görünür). 90°’ye yakın: yandan (disk ince çizgi).',
+    rCam: 'Kara delikten uzaklığınız. Küçük değer: yakın, görüntü daha çok bükülür. M, kara deliğin kütlesine bağlı uzunluk birimidir.',
+    Tmax: 'Diskin en sıcak yerinin sıcaklığı (Kelvin). Düşükse kırmızı-turuncu, yüksekse beyaz-mavimsi görünür.',
+    animate: 'Diskin dönüşünü canlandırır. Kapalıyken görüntü durağandır ve pil daha az harcanır.',
   },
 
   units: { M: 'M', deg: '°', K: 'K', EV: 'EV', ms: 'M/s', km: 'km', s: 's', rads: 'rad/s', perM: 'M⁻¹' },

@@ -8,7 +8,7 @@ const VERSION = 'v1';
 const CACHE = `karadelik-${VERSION}`;
 const SCOPE = self.registration.scope; // sonu '/' ile biter
 const INDEX = SCOPE;
-const SHELL = ['manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.svg'].map((p) => new URL(p, SCOPE).href);
+const SHELL = ['manifest.webmanifest', 'kilavuz.html', 'gizlilik.html', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.svg'].map((p) => new URL(p, SCOPE).href);
 
 /** index.html metninden aynı kökenli bağımlılık adreslerini çıkarır (script/link/modulepreload). */
 function assetUrlsFrom(html) {
@@ -63,7 +63,8 @@ async function networkFirst(request, { fallbackKey, isIndex } = {}) {
     }
     return res;
   } catch (err) {
-    const hit = (await cache.match(fallbackKey || request, { ignoreSearch: true }));
+    // önce isteğin kendisi (ör. kilavuz.html, gizlilik.html), yoksa kabuk (index) — SPA benzeri çevrimdışı yedek
+    const hit = (await cache.match(isIndex ? INDEX : request, { ignoreSearch: true })) || (fallbackKey && await cache.match(fallbackKey, { ignoreSearch: true }));
     if (hit) return hit;
     throw err;
   }
@@ -84,7 +85,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || !url.href.startsWith(SCOPE)) return;
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, { fallbackKey: INDEX, isIndex: true }));
+    // yalnız uygulama kabuğu (kök veya index.html) INDEX girdisine yazılır; kilavuz.html / gizlilik.html kendi adresleriyle önbelleğe alınır
+    const isIndex = url.href === INDEX || url.pathname === new URL('index.html', SCOPE).pathname;
+    event.respondWith(networkFirst(request, { fallbackKey: INDEX, isIndex }));
   } else if (/\/assets\//.test(url.pathname)) {
     event.respondWith(cacheFirst(request));
   } else if (url.pathname !== new URL('sw.js', SCOPE).pathname) {
