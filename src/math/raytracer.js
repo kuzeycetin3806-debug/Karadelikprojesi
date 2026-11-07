@@ -60,8 +60,15 @@ export const DEFAULT_OPTIONS = Object.freeze({
   stepRule: 'full', // 'full' | 'nodrag': adım kuralında çerçeve sürüklenmesi (aP/Δ) terimini dışla (yalnız rk4 için anlamlı)
 });
 
-/** GPU (f32 RK4, κ=0.05) için önerilen adım bütçesi, spine bağlı. Bkz. README §7 (ölçümler). */
-export function recommendedGpuBudget(a) {
+/**
+ * GPU (f32 RK4, κ=0.05) için önerilen adım bütçesi, spine bağlı. Bkz. README §7 (ölçümler).
+ *  - analytic=true  (önerilen): bütçesi biten ışın `fate` ile (R(r)=0 kökü) sınıflanır → gölge N'den bağımsız;
+ *    N=512 tüm spinlerde yeterli (a=0.998'de ρ_c hatası 4e-5…9e-5 M).
+ *  - analytic=false ("bütçe bitti → yakalandı" SAYISAL YAKLAŞIMI): gölge şişmesini sınırlamak için N spine bağlı
+ *    (a<0.9: 512; 0.9≤a<0.99: 1024; a≥0.99: 2048).
+ */
+export function recommendedGpuBudget(a, analytic = true) {
+  if (analytic) return { kappa: 0.05, maxSteps: 512 };
   if (a >= 0.99) return { kappa: 0.05, maxSteps: 2048 };
   if (a >= 0.9) return { kappa: 0.05, maxSteps: 1024 };
   return { kappa: 0.05, maxSteps: 512 };
