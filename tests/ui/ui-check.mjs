@@ -1,6 +1,6 @@
 /**
  * Arayüz doğrulaması (Playwright, headless Chromium + SwiftShader). `node --test` ile ÇALIŞMAZ.
- *   node tests/ui/ui-check.mjs [--out=/tmp/karadelik-ui] [--only=shots|logic]
+ *   node tests/ui/ui-check.mjs [--out=/tmp/karadelik-ui] [--only=shots|logic|shell]
  * - Kontroller → setParams, fare/dokunmatik/klavye kamera etkisi, bilgi ekranı ↔ physics, konsol hatası.
  * - 375×812, 768×1024, 1024×768, 1440×900 ekran görüntüleri.
  */
@@ -20,7 +20,9 @@ const { chromium } = require('playwright');
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.replace(/^--/, '').split('=')));
 const OUT = args.out || '/tmp/karadelik-ui';
 const ONLY = args.only || '';
+const PWA_OUT = args['pwa-out'] || '/tmp/karadelik-pwa';
 fs.mkdirSync(OUT, { recursive: true });
+fs.mkdirSync(PWA_OUT, { recursive: true });
 
 const DEG = Math.PI / 180;
 const results = [];
@@ -56,6 +58,10 @@ async function openPage({ width, height, touch = false }) {
   page.on('pageerror', (e) => consoleErrors.push(`[${tag}] [pageerror] ${e.message}`));
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction(() => !!window.__karadelik?.ui, null, { timeout: 60000 });
+  // SwiftShader'da tam çözünürlüklü animasyonlu kare saniyeler sürer: ilk kare ucuz olsun (testler gerektiğinde kendi ayarını yapar)
+  await page.evaluate(() => window.__karadelik.ui.set({ animate: false, resolutionScale: 0.25 }));
+  // açılış ekranı ilk kare çizilince kalkar (önce pointer-events'i keser, sonra DOM'dan çıkar)
+  await page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
   // kamera yazımlarını kaydet (band atlama denetimi için)
   await page.evaluate(() => {
     const r = window.__karadelik.renderer;
@@ -129,7 +135,8 @@ async function logicDesktop() {
   for (const [a, pro] of [[0.9, true], [0.9, false], [0.998, true]]) {
     await page.evaluate(([a, pro]) => window.__karadelik.ui.set({ a, prograde: pro, thetaCam: 75 * Math.PI / 180, rCam: 50 }), [a, pro]);
     await settleCamera(page);
-    await sleep(150);
+    await page.waitForFunction(() => document.querySelector('[data-info=rPlus] .v')?.dataset.value !== undefined);
+    await sleep(100);
     const p = await P(page);
     info = await readInfo();
     const hz = horizonRadii(1, a);
@@ -211,7 +218,7 @@ async function logicDesktop() {
   p = await P(page);
   check('performans / kalite / çözünürlük ölçeği', p.performance === 'quality' && p.quality === 'mobile' && near(p.resolutionScale, 0.5, 1e-9));
   await page.uncheck('#ui-disk');
-  await sleep(1500);
+  await page.waitForFunction(() => document.getElementById('ui-Tmax').disabled, null, { timeout: 30000 });
   check('disk kapat → disk=false, Tmax devre dışı', (await P(page)).disk === false && (await page.isDisabled('#ui-Tmax')), `disk=${(await P(page)).disk} dis=${await page.isDisabled('#ui-Tmax')}`);
 
   // --- ön ayarlar
@@ -341,7 +348,7 @@ async function logicDesktop() {
   // panel aç/kapa + Esc
   await page.evaluate(() => window.__karadelik.ui.camera.reset());
   await page.click('#panel-toggle');
-  await sleep(800);
+  await page.waitForFunction(() => !window.__karadelik.ui.isOpen() && getComputedStyle(document.getElementById('panel')).visibility === 'hidden', null, { timeout: 30000 });
   check('panel aç/kapa düğmesi (aria-expanded=false)', (await page.getAttribute('#panel-toggle', 'aria-expanded')) === 'false' && !(await page.isVisible('#panel')));
   await page.click('#panel-toggle');
   // Sabit bekleme yerine koşul: SwiftShader'da render ana iş parçacığını yüzlerce ms meşgul edebilir.
@@ -422,7 +429,7 @@ async function logicTouch() {
 
   // panel (sheet)
   await page.tap('#panel-toggle');
-  await sleep(500);
+  await page.waitForFunction(() => { const p = document.getElementById('panel'); const r = p.getBoundingClientRect(); return getComputedStyle(p).visibility === 'visible' && r.bottom >= innerHeight - 1 && r.top < innerHeight * 0.7; }, null, { timeout: 30000 });
   check('telefon: panel alttan açılır (sheet)', await page.evaluate(() => {
     const r = document.getElementById('panel').getBoundingClientRect();
     return r.bottom >= innerHeight - 1 && r.top > innerHeight * 0.3 && r.width >= innerWidth - 1;
@@ -435,9 +442,188 @@ async function logicTouch() {
   // aşağı kaydırarak kapat
   const bbox = await page.evaluate(() => { const r = document.querySelector('.panel-head').getBoundingClientRect(); return { x: r.x + 120, y: r.y + 14 }; });
   await touchSeq(page, lerpPts([{ x: bbox.x, y: bbox.y }], [{ x: bbox.x, y: bbox.y + 140 }], 8));
-  await sleep(500);
+  await page.waitForFunction(() => !window.__karadelik.ui.isOpen(), null, { timeout: 30000 }).catch(() => {});
   check('telefon: başlıktan aşağı kaydırınca sheet kapanır', !(await page.evaluate(() => window.__karadelik.ui.isOpen())));
   await ctx.close();
+}
+
+
+// ================================================================== KABUK / PWA KONTROLLERİ
+const pngSize = (f) => { const b = fs.readFileSync(f); return b.readUInt32BE(8) === 0x0d0a1a0a || b.toString('ascii', 1, 4) === 'PNG' ? [b.readUInt32BE(16), b.readUInt32BE(20)] : null; };
+const NO_GL2 = () => {
+  const orig = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, ...rest) { return type === 'webgl2' ? null : orig.call(this, type, ...rest); };
+};
+
+function manifestChecks() {
+  console.log('\n== Manifest ve ikonlar ==');
+  const pub = path.join(PROJECT_ROOT, 'public');
+  let m = null;
+  try { m = JSON.parse(fs.readFileSync(path.join(pub, 'manifest.webmanifest'), 'utf8')); } catch (e) { /* aşağıda başarısız */ }
+  check('manifest geçerli JSON', !!m);
+  if (!m) return;
+  check('manifest: ad/kısa ad/dil', m.name === 'Kara Delik Simülasyonu' && m.short_name === 'Kara Delik' && m.lang === 'tr');
+  check('manifest: göreli start_url/scope', m.start_url === './' && m.scope === './');
+  check('manifest: display standalone + override', m.display === 'standalone' && m.display_override?.join() === 'fullscreen,standalone' && m.orientation === 'any');
+  check('manifest: renkler ve kategoriler', m.background_color === '#000000' && /^#[0-9a-f]{6}$/i.test(m.theme_color) && m.categories?.join() === 'education,science');
+  const bad = [];
+  for (const ic of m.icons) {
+    if (/^(\/|[a-z]+:)/i.test(ic.src)) bad.push(`mutlak yol: ${ic.src}`);
+    const f = path.join(pub, ic.src);
+    if (!fs.existsSync(f)) { bad.push(`yok: ${ic.src}`); continue; }
+    if (ic.type === 'image/png') {
+      const [w, h] = pngSize(f) || [0, 0];
+      if (`${w}x${h}` !== ic.sizes) bad.push(`${ic.src}: ${w}x${h} ≠ ${ic.sizes}`);
+    }
+  }
+  check('manifest: ikon dosyaları var, boyutlar doğru, yollar göreli', bad.length === 0, bad.join('; '));
+  const has = (sz, purpose) => m.icons.some((i) => i.sizes === sz && i.purpose === purpose);
+  check('manifest: 192, 512, 512 maskable, 180 ikonları', has('192x192', 'any') && has('512x512', 'any') && has('512x512', 'maskable') && has('180x180', 'any'));
+  check('favicon dosyaları (svg + 32 px png)', fs.existsSync(path.join(pub, 'icons/favicon.svg')) && pngSize(path.join(pub, 'icons/favicon-32.png'))?.join('x') === '32x32');
+  check('sw.js mevcut', fs.existsSync(path.join(pub, 'sw.js')));
+}
+
+async function rawPage(opts = {}, init) {
+  const ctx = await browser.newContext({ viewport: { width: 1024, height: 700 }, reducedMotion: 'reduce', ...opts });
+  if (init) await ctx.addInitScript(init);
+  const page = await ctx.newPage();
+  const errs = [];
+  page.on('pageerror', (e) => errs.push(e.message));
+  return { ctx, page, errs };
+}
+
+async function shellChecks() {
+  console.log('\n== Kabuk: splash, hakkında, yardım, hata ekranı ==');
+  const { ctx, page } = await openPage({ width: 1440, height: 900 });
+  check('splash ilk kareden sonra kayboldu', (await page.$('#splash')) === null && (await ST(page)).frames > 0);
+  const head = await page.evaluate(() => ({
+    manifest: document.querySelector('link[rel=manifest]')?.getAttribute('href'),
+    touch: document.querySelector('link[rel=apple-touch-icon]')?.getAttribute('href'),
+    capable: document.querySelector('meta[name=apple-mobile-web-app-capable]')?.content,
+    bar: document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]')?.content,
+    title: document.querySelector('meta[name=apple-mobile-web-app-title]')?.content,
+    themes: document.querySelectorAll('meta[name=theme-color]').length,
+    desc: !!document.querySelector('meta[name=description]')?.content,
+    og: !!document.querySelector('meta[property="og:title"]') && !!document.querySelector('meta[property="og:description"]'),
+    vp: document.querySelector('meta[name=viewport]')?.content,
+  }));
+  check('index.html: manifest + apple-touch-icon bağlı', /manifest\.webmanifest$/.test(head.manifest) && /apple-touch-icon\.png$/.test(head.touch), JSON.stringify(head));
+  check('index.html: iOS meta, theme-color ×2, description, og, viewport-fit=cover', head.capable === 'yes' && head.bar === 'black-translucent' && head.title && head.themes === 2 && head.desc && head.og && /viewport-fit=cover/.test(head.vp));
+  check('dev sunucuda service worker kaydedilmedi', (await page.evaluate(() => navigator.serviceWorker.getRegistrations().then((r) => r.length))) === 0);
+
+  // yardım: ? ile aç, Esc ile kapat
+  await page.keyboard.press('?');
+  await page.waitForSelector('#dlg-help[open]', { timeout: 10000 });
+  check('? → yardım penceresi açılır', await page.isVisible('#dlg-help'));
+  check('yardım: fare/dokunmatik/klavye bölümleri', (await page.$$eval('#dlg-help .help-group h3', (e) => e.map((x) => x.textContent))).join() === 'Fare,Dokunmatik,Klavye');
+  const th0 = (await P(page)).thetaCam;
+  await page.keyboard.press('ArrowUp');
+  check('diyalog açıkken ok tuşu kamerayı oynatmaz', (await P(page)).thetaCam === th0);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('dlg-help').open, null, { timeout: 10000 });
+  check('Esc yardım penceresini kapatır', !(await page.isVisible('#dlg-help')));
+
+  // hakkında
+  await page.click('button[aria-label="Hakkında"]');
+  await page.waitForSelector('#dlg-about[open]', { timeout: 10000 });
+  const txt = await page.textContent('#dlg-about');
+  check('hakkında: kaynaklar (Bardeen, BPT, Page–Thorne, Luminet)', /Bardeen, J\. M\. \(1973\)/.test(txt) && /Press, W\. H\./.test(txt) && /Page, D\. N\./.test(txt) && /Luminet/.test(txt));
+  check('hakkında: FİZİKSEL/ESTETİK/GÖSTERİM + telif + sürüm', /FİZİKSEL/.test(txt) && /ESTETİK/.test(txt) && /GÖSTERİM/.test(txt) && /Telif hakkı © 2026 kuzeycetin3806-debug — Tüm hakları saklıdır/.test(txt) && /Sürüm \d+\.\d+\.\d+/.test(txt));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('dlg-about').open, null, { timeout: 10000 });
+  check('Esc hakkında penceresini kapatır, odak düğmeye döner', (await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'Hakkında');
+  check('tam ekran düğmesi (destekleniyorsa görünür)', await page.evaluate(() => { const b = document.querySelector('.tb-fs'); return document.fullscreenEnabled ? !b.hidden : b.hidden; }));
+
+  // yükleme düğmesi: olay yokken gizli; sahte beforeinstallprompt ile görünür
+  check('yükle düğmesi olay yokken gizli', !(await page.isVisible('[data-install].tb-install')));
+  await page.evaluate(() => {
+    const e = new Event('beforeinstallprompt');
+    e.prompt = () => { window.__prompted = 1; return Promise.resolve(); };
+    e.userChoice = Promise.resolve({ outcome: 'accepted' });
+    window.dispatchEvent(e);
+  });
+  await page.waitForSelector('[data-install].tb-install', { state: 'visible', timeout: 5000 });
+  await page.click('[data-install].tb-install');
+  await page.waitForFunction(() => window.__prompted === 1 && document.querySelector('[data-install].tb-install').hidden, null, { timeout: 5000 });
+  check('beforeinstallprompt → düğme görünür, tıklayınca prompt(), sonra gizlenir', true);
+
+  // standalone sınıfı: seçim/uzun basma kapalı
+  const sa = await page.evaluate(() => { document.documentElement.classList.add('standalone'); const cs = getComputedStyle(document.getElementById('sahne')); return { us: cs.userSelect, ta: cs.touchAction }; });
+  check('standalone: sahnede metin seçimi kapalı, touch-action none', sa.us === 'none' && sa.ta === 'none', JSON.stringify(sa));
+  await ctx.close();
+
+  // bağlam kaybı → hata ekranı, geri gelince kalkar (kendi bağlamı: konsol uyarıları sayılmaz)
+  {
+    const r = await rawPage();
+    await r.page.goto(url, { waitUntil: 'load' });
+    await r.page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
+    await r.page.evaluate(() => { window.__lose = window.__karadelik.renderer.getContext().getExtension('WEBGL_lose_context'); window.__lose.loseContext(); });
+    await r.page.waitForSelector('.fatal[data-fatal=lost]', { timeout: 10000 });
+    check('bağlam kaybı → anlaşılır ekran (role=alert), sayfa hatası yok', (await r.page.getAttribute('.fatal', 'role')) === 'alert' && r.errs.length === 0, r.errs.join('|'));
+    await r.page.evaluate(() => window.__lose.restoreContext());
+    await r.page.waitForSelector('.fatal', { state: 'detached', timeout: 15000 }).catch(() => {});
+    check('bağlam geri gelince hata ekranı kalkar', (await r.page.$('.fatal')) === null);
+    await r.ctx.close();
+  }
+  // WebGL2 yok → hata ekranı
+  {
+    const r = await rawPage({}, NO_GL2);
+    await r.page.goto(url, { waitUntil: 'load' });
+    await r.page.waitForSelector('.fatal[data-fatal=init]', { timeout: 30000 });
+    const f = await r.page.evaluate(() => ({ text: document.querySelector('.fatal').textContent, splash: !!document.getElementById('splash'), app: !!window.__karadelik }));
+    check('WebGL2 yok → hata ekranı (gerekenler listesi), çökme yok', /WebGL 2/.test(f.text) && /donanım hızlandırma/.test(f.text) && /Safari/.test(f.text) && r.errs.length === 0, r.errs.join('|'));
+    await new Promise((res) => setTimeout(res, 1300));
+    check('WebGL2 yok → açılış ekranı hata ekranının altında kalmaz', (await r.page.$('#splash')) === null || (await r.page.evaluate(() => getComputedStyle(document.getElementById('splash')).visibility)) === 'hidden');
+    await r.page.screenshot({ path: path.join(PWA_OUT, '1440-hata-webgl2.png') });
+    await r.ctx.close();
+  }
+  // iOS Safari (standalone değil): Ana Ekrana Ekle ipucu bir kez
+  {
+    const r = await rawPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
+    await r.page.goto(url, { waitUntil: 'load' });
+    await r.page.waitForSelector('#banner-ios', { timeout: 60000 });
+    check('iOS Safari: "Ana Ekrana Ekle" ipucu görünür', /Ana Ekrana Ekle/.test(await r.page.textContent('#banner-ios')));
+    await r.page.screenshot({ path: path.join(PWA_OUT, '375-ios-ipucu.png') });
+    await r.page.click('#banner-ios button');
+    await r.page.reload({ waitUntil: 'load' });
+    await r.page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
+    await new Promise((res) => setTimeout(res, 4800));
+    check('iOS ipucu kapatılınca (localStorage) tekrar gösterilmez', (await r.page.$('#banner-ios')) === null);
+    await r.ctx.close();
+  }
+}
+
+async function pwaScreens() {
+  console.log('\n== PWA ekran görüntüleri ==');
+  for (const v of [{ n: '375x812', width: 375, height: 812, touch: true }, { n: '768x1024', width: 768, height: 1024, touch: true }, { n: '1440x900', width: 1440, height: 900, touch: false }]) {
+    // splash: main.js istegi tutulur → yalnız statik açılış ekranı görünür
+    {
+      const r = await rawPage({ viewport: { width: v.width, height: v.height }, hasTouch: v.touch, isMobile: v.touch });
+      await r.page.route('**/src/main.js*', () => {});
+      await r.page.goto(url, { waitUntil: 'commit' });
+      await r.page.waitForSelector('#splash img', { timeout: 30000 });
+      await r.page.waitForFunction(() => document.querySelector('#splash img').complete);
+      await sleep(900);
+      await r.page.screenshot({ path: path.join(PWA_OUT, `${v.n}-splash.png`) });
+      await r.ctx.close();
+    }
+    const { ctx, page } = await openPage(v);
+    await page.evaluate(() => window.__karadelik.ui.set({ animate: false, diskTime: 40, resolutionScale: 0.5 }));
+    await settleRender(page, 1000, 30000);
+    await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-ana.png`) });
+    await page.click('button[aria-label="Hakkında"]');
+    await page.waitForSelector('#dlg-about[open]');
+    await sleep(500);
+    await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-hakkinda.png`) });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('?');
+    await page.waitForSelector('#dlg-help[open]');
+    await sleep(500);
+    await page.screenshot({ path: path.join(PWA_OUT, `${v.n}-yardim.png`) });
+    const ov = await page.evaluate(() => { const d = document.querySelector('dialog[open]').getBoundingClientRect(); return d.left >= 0 && d.right <= innerWidth && d.top >= 0 && d.bottom <= innerHeight && document.documentElement.scrollWidth <= innerWidth + 1; });
+    check(`[${v.n}] yardım penceresi görünüm içinde, taşma yok`, ov);
+    await ctx.close();
+  }
 }
 
 // ================================================================== EKRAN GÖRÜNTÜLERİ
@@ -489,9 +675,9 @@ async function screenshots() {
       document.querySelector('[data-sec=info]').scrollIntoView();
     });
     await page.fill('#ui-mass', '10');
-    await sleep(300);
+    await page.waitForFunction(() => document.querySelector('[data-info=rPlus] .km')?.textContent.includes('km'), null, { timeout: 30000 });
     await page.click('[data-info=rIsco] .row-label');
-    await sleep(300);
+    await page.waitForSelector('[data-info=rIsco] .row-detail', { state: 'visible', timeout: 10000 }).catch(() => {});
     await shot('bilgi');
     await layoutAudit(page, `${v.name} bilgi açık`, v.touch);
     await page.fill('#ui-mass', '');
@@ -512,8 +698,11 @@ async function screenshots() {
 }
 
 try {
-  if (ONLY !== 'shots') { await logicDesktop(); await logicTouch(); }
-  if (ONLY !== 'logic') await screenshots();
+  if (ONLY === 'shell') { manifestChecks(); await shellChecks(); await pwaScreens(); }
+  else {
+    if (ONLY !== 'shots') { manifestChecks(); await logicDesktop(); await logicTouch(); await shellChecks(); }
+    if (ONLY !== 'logic') { await screenshots(); await pwaScreens(); }
+  }
 } catch (e) {
   console.error('TEST HATASI:', e);
   results.push({ name: 'beklenmeyen hata', ok: false, detail: String(e?.stack || e) });

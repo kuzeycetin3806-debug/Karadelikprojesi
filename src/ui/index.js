@@ -5,6 +5,8 @@ import { h, icon, ICONS } from './dom.js';
 import { S } from './strings.js';
 import { createCameraController } from './camera.js';
 import { createPanel } from './panel.js';
+import { createDialogs } from './dialogs.js';
+import { canInstall, onInstallChange, promptInstall } from './pwa.js';
 
 const CAMERA_KEYS = ['phiCam', 'thetaCam', 'rCam'];
 const PHONE_MQ = '(max-width: 699px)';
@@ -90,9 +92,56 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
   const resetBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.resetCamera, title: S.toolbar.resetCamera, onClick: () => cam.reset() }, icon(...ICONS.reset));
   const shotBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.screenshot, title: S.toolbar.screenshot, onClick: () => { screenshot(); } }, icon(...ICONS.camera));
   const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': S.appTitle }, toggleBtn, resetBtn, shotBtn);
+
+  // ---- uygulama araçları (sağ üst): yükle · tam ekran · yardım · hakkında
+  const makeInstallBtn = (cls) => h(`button.btn${cls}`, { type: 'button', hidden: true, 'data-install': '', title: S.toolbar.install, onClick: () => { promptInstall(); } }, icon(...ICONS.download), h('span.tb-text', null, S.toolbar.install));
+  const installBtn = makeInstallBtn('.tb-btn.tb-install');
+  const installBtn2 = makeInstallBtn('.install-wide');
+  installBtn.setAttribute('aria-label', S.toolbar.install);
+  const syncInstall = () => { const v = canInstall(); installBtn.hidden = !v; installBtn2.hidden = !v; };
+  const offInstall = onInstallChange(syncInstall);
+  syncInstall();
+
+  const fsEl = document.documentElement;
+  const fsApi = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled) && !!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen);
+  const fsActive = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  function toggleFullscreen() {
+    try {
+      const p = fsActive()
+        ? (document.exitFullscreen || document.webkitExitFullscreen).call(document)
+        : (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl);
+      p?.catch?.(() => {});
+    } catch { /* kullanıcı jesti yoksa vb. */ }
+  }
+  const fsBtn = h('button.btn.tb-btn.tb-icon.tb-fs', { type: 'button', hidden: !fsApi, 'aria-label': S.toolbar.fullscreen, title: S.toolbar.fullscreen, onClick: toggleFullscreen });
+  const syncFs = () => {
+    const a = fsActive();
+    fsBtn.replaceChildren(icon(...(a ? ICONS.exitFullscreen : ICONS.fullscreen)));
+    const l = a ? S.toolbar.exitFullscreen : S.toolbar.fullscreen;
+    fsBtn.setAttribute('aria-label', l);
+    fsBtn.title = l;
+    fsBtn.setAttribute('aria-pressed', String(a));
+  };
+  syncFs();
+  document.addEventListener('fullscreenchange', syncFs);
+  document.addEventListener('webkitfullscreenchange', syncFs);
+
+  const dialogs = createDialogs({ install: installBtn2 });
+  const helpBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.help, title: S.toolbar.help, onClick: () => dialogs.openHelp() }, icon(...ICONS.help));
+  const aboutBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.about, title: S.toolbar.about, onClick: () => dialogs.openAbout() }, icon(...ICONS.info));
+  const utilbar = h('div.toolbar.toolbar-util', { role: 'toolbar', 'aria-label': S.toolbar.utilLabel }, installBtn, fsBtn, helpBtn, aboutBtn);
+
+  const onGlobalKey = (e) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t instanceof Element && t.closest('input, select, textarea, [contenteditable="true"]')) return;
+    if (e.key === '?') { e.preventDefault(); dialogs.isOpen() ? dialogs.closeAll() : dialogs.openHelp(); }
+    else if ((e.key === 'f' || e.key === 'F') && fsApi && !dialogs.isOpen()) { e.preventDefault(); toggleFullscreen(); }
+  };
+  window.addEventListener('keydown', onGlobalKey);
   const toast = h('div.toast', { role: 'status', 'aria-live': 'polite' });
 
-  const ui = h('div#ui.ui', null, toolbar, hint, panel.el, toast);
+  const ui = h('div#ui.ui', null, toolbar, utilbar, hint, panel.el, toast);
   root.append(ui);
 
   // ---- aç / kapa
@@ -181,6 +230,11 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     destroy() {
       cam.dispose();
       panel.stopStats();
+      offInstall();
+      dialogs.destroy();
+      window.removeEventListener('keydown', onGlobalKey);
+      document.removeEventListener('fullscreenchange', syncFs);
+      document.removeEventListener('webkitfullscreenchange', syncFs);
       clearTimeout(hintTimer);
       clearTimeout(toastTimer);
       ui.remove();

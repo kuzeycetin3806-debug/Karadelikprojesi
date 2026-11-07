@@ -15,6 +15,68 @@ export const S = {
     panelToggleLabel: 'Kontrol panelini aç/kapat',
     resetCamera: 'Kamerayı sıfırla',
     screenshot: 'Ekran görüntüsü indir',
+    fullscreen: 'Tam ekran',
+    exitFullscreen: 'Tam ekrandan çık',
+    help: 'Yardım ve kısayollar (?)',
+    about: 'Hakkında',
+    install: 'Uygulamayı yükle',
+    utilLabel: 'Uygulama araçları',
+  },
+
+  app: {
+    version: 'Sürüm',
+    copyright: 'Telif hakkı © 2026 kuzeycetin3806-debug — Tüm hakları saklıdır',
+    close: 'Kapat',
+    splash: { load: 'Yükleniyor…', init: 'Işın izleyici hazırlanıyor…', shader: 'Shader derleniyor, ilk kare çiziliyor…', ready: 'Hazır' },
+    update: { text: 'Yeni sürüm hazır', action: 'Yenile', dismiss: 'Sonra' },
+    ios: { text: 'Uygulama olarak eklemek için Paylaş düğmesine, ardından “Ana Ekrana Ekle”ye dokunun.', dismiss: 'Anladım' },
+    offlineReady: 'Uygulama çevrimdışı kullanıma hazır.',
+    fatal: {
+      title: 'Simülasyon başlatılamadı',
+      noWebgl: 'Bu cihazda veya tarayıcıda WebGL 2 kullanılamıyor. Simülasyon, GPU üzerinde ışın izleme yaptığı için WebGL 2 gerektirir.',
+      needs: 'Gerekenler',
+      needsList: [
+        'Güncel bir tarayıcı: Safari 15+ (iOS/iPadOS 15+), Chrome, Edge veya Firefox.',
+        'Tarayıcı ayarlarında “donanım hızlandırma”nın açık olması.',
+        'Güncel ekran kartı sürücüsü; pil tasarrufu modunun kapalı olması.',
+      ],
+      retry: 'Yeniden dene',
+      detail: 'Teknik ayrıntı',
+      lostTitle: 'Grafik bağlamı kayboldu',
+      lostText: 'Tarayıcı grafik işlemcisini geçici olarak geri aldı (bellek baskısı veya sürücü sıfırlaması olabilir). Bağlam geri gelirse görüntü kendiliğinden devam eder; gelmezse sayfayı yeniden yükleyin.',
+    },
+  },
+
+  help: {
+    title: 'Yardım ve kısayollar',
+    groups: [
+      { title: 'Fare', rows: [['Sürükle', 'Kamerayı kara delik çevresinde döndür (yörünge)'], ['Tekerlek', 'Yakınlaştır / uzaklaştır'], ['Çift tıkla', 'Kamerayı sıfırla']] },
+      { title: 'Dokunmatik', rows: [['Tek parmak sürükle', 'Yörünge'], ['İki parmak aç/kıs (pinch)', 'Yakınlaştır / uzaklaştır'], ['Çift dokun', 'Kamerayı sıfırla']] },
+      { title: 'Klavye', rows: [['← →  ↑ ↓', 'Yörünge (azimut / eğim)'], ['+  −  (PgUp / PgDn)', 'Yakınlaştır / uzaklaştır'], ['Home veya 0', 'Kamerayı sıfırla'], ['?', 'Bu yardım penceresi'], ['F', 'Tam ekran (destekleniyorsa)'], ['Esc', 'Pencereyi / paneli kapat']] },
+    ],
+    badges: 'Rozetler: FİZİKSEL = Kerr geodeziklerinden/Page–Thorne modelinden gelir; ESTETİK = görsel hoşluk için, öngörü değildir; GÖSTERİM = kamera, ölçek, performans.',
+  },
+
+  about: {
+    title: 'Hakkında',
+    intro: 'Dönen (Kerr) bir kara delik çevresinde, kamera pikselinden geriye doğru ışık geodeziklerini GPU üzerinde ışın izleyerek hesaplayan etkileşimli bir simülasyon. Toplanma diski, Page–Thorne ince disk modeliyle ışıyan, kütleçekimsel kırmızıya kayma ve Doppler etkileri dahil edilmiş sıcaklık profilini kullanır. G = c = 1; uzunluk birimi M.',
+    layersTitle: 'Fiziksel / estetik / gösterim ayrımı',
+    layers: [
+      ['phys', 'FİZİKSEL', 'Kerr metriği, ışık geodezikleri, merceklenme, gölge, ISCO, Page–Thorne sıcaklık profili, g faktörü (Doppler + kütleçekimsel kırmızıya kayma).'],
+      ['aest', 'ESTETİK', 'Bloom, türbülans dokusu, disk dış kenar yumuşatması, yıldız/Samanyolu dağılımı, ton eşleme seçimi. Öngörü değildir.'],
+      ['view', 'GÖSTERİM', 'Kamera, görüş alanı, pozlama, çözünürlük ölçeği, kalite/performans ayarları. Fiziksel içeriği değiştirmez.'],
+    ],
+    refsTitle: 'Kaynaklar',
+    refs: [
+      'Bardeen, J. M. (1973). Timelike and null geodesics in the Kerr metric. Les Houches.',
+      'Bardeen, J. M., Press, W. H., Teukolsky, S. A. (1972). Rotating black holes: locally nonrotating frames, energy extraction, and scalar synchrotron radiation. ApJ 178, 347.',
+      'Page, D. N., Thorne, K. S. (1974). Disk-accretion onto a black hole. I. Time-averaged structure of accretion disk. ApJ 191, 499.',
+      'Luminet, J.-P. (1979). Image of a spherical black hole with thin accretion disk. A&A 75, 228.',
+    ],
+    note: 'Ayrıntılı denklemler ve sınır testleri: docs/physics/.',
+    privacy: 'Tüm hesap cihazınızda yapılır; veri toplanmaz veya gönderilmez.',
+    installTitle: 'Uygulama olarak kur',
+    installText: 'Chrome/Edge: adres çubuğundaki yükle simgesi veya araç çubuğundaki düğme. iOS/iPadOS Safari: Paylaş → Ana Ekrana Ekle. Kurulduktan sonra çevrimdışı da çalışır.',
   },
 
   panel: {

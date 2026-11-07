@@ -3,14 +3,49 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#000000" />
-  <meta name="color-scheme" content="dark" />
   <title>Kara Delik Simülasyonu</title>
-  <style>html,body{margin:0;height:100%;background:#000;overflow:hidden;overscroll-behavior:none}#sahne{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;-webkit-user-select:none;user-select:none}</style>
+  <meta name="description" content="Kerr kara deliği için etkileşimli, bilimsel ışın izleme simülasyonu: kütleçekimsel merceklenme, Page–Thorne toplanma diski ve Doppler etkileri. Tarayıcıda çalışır, uygulama olarak kurulabilir." />
+  <meta name="theme-color" content="#05070c" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="application-name" content="Kara Delik" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Kara Delik" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="tr_TR" />
+  <meta property="og:title" content="Kara Delik Simülasyonu" />
+  <meta property="og:description" content="Kerr kara deliği için etkileşimli ışın izleme: merceklenme, Page–Thorne diski, Doppler etkileri." />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <style>
+    html,body{margin:0;height:100%;background:#000;overflow:hidden;overscroll-behavior:none}
+    #sahne{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+    /* Açılış ekranı (JS yüklenmeden de görünür) */
+    #splash{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 42%,#10162a 0%,#03040a 70%);color:#e9edf4;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;text-align:center;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);transition:opacity .6s ease,visibility 0s linear .6s}
+    #splash.done{opacity:0;visibility:hidden;pointer-events:none}
+    #splash img{width:112px;height:112px;border-radius:26px;animation:splash-in .8s cubic-bezier(.22,.8,.24,1) both}
+    #splash h1{margin:6px 0 0;font-size:22px;font-weight:650;letter-spacing:.01em}
+    #splash p{margin:0;color:#a6b0c0;font-size:13px;min-height:1.4em}
+    #splash .bar{width:min(220px,60vw);height:3px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden}
+    #splash .bar i{display:block;height:100%;width:8%;border-radius:2px;background:#7cc4ff;transition:width .5s ease}
+    @keyframes splash-in{from{opacity:0;transform:scale(.86)}to{opacity:1;transform:none}}
+    @media (prefers-reduced-motion:reduce){#splash,#splash img,#splash .bar i{animation:none;transition-duration:.01ms}}
+  </style>
 </head>
 <body>
   <canvas id="sahne"></canvas>
-  <noscript><p style="position:fixed;top:1rem;left:1rem;color:#ddd;font-family:sans-serif">Bu simülasyon JavaScript ve WebGL2 gerektirir.</p></noscript>
+  <div id="splash" role="status" aria-live="polite">
+    <img src="/icons/icon-192.png" width="112" height="112" alt="" />
+    <h1>Kara Delik Simülasyonu</h1>
+    <p id="splash-msg">Yükleniyor…</p>
+    <div class="bar" role="progressbar" aria-label="Yükleniyor" aria-valuemin="0" aria-valuemax="100" aria-valuenow="8"><i id="splash-bar"></i></div>
+  </div>
+  <noscript><p style="position:fixed;z-index:101;top:1rem;left:1rem;color:#ddd;font-family:sans-serif">Bu simülasyon JavaScript ve WebGL2 gerektirir.</p></noscript>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
