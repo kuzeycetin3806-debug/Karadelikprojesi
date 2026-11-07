@@ -47,6 +47,7 @@ void setupCameraRay(vec2 ndc, out State y0, out float nuCam) {
   g_L2 = g_L * g_L;
   g_aL = uA * g_L;
   g_hasL = (g_L != 0.0);
+  g_sMin = g_hasL ? 0.25 * abs(g_L) / sqrt(g_Q + uA2 + g_L2) : 0.0;   // 4b eksen koruması tabanı
 
   // p_r = +√R/Δ  (signR = +1: merkez ve tüm ekran pikselleri için n_r = 1/|d| > 0)
   float R = radialPotential(uCam.x, g_L, g_Q);

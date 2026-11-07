@@ -24,15 +24,25 @@ try {
     try { r.setParams({ quality: 'ultra' }); o.badQuality = 'kabul edildi'; } catch (e) { o.badQuality = e.constructor.name; }
     try { r.setParams({ a: 'x' }); o.badType = 'kabul edildi'; } catch (e) { o.badType = e.constructor.name; }
 
+    // 4b parametreleri
+    o.newDefaults = { Tmax: o.defaults.Tmax, fCol: o.defaults.fCol, mode: o.defaults.brightnessMode, exposure: o.defaults.exposure, tonemap: o.defaults.tonemap, perf: o.defaults.performance };
+    r.setParams({ Tmax: 1, fCol: 99, exposure: 1e9, bloomStrength: 99, turbulenceAmp: 5, milkyWay: -1, interactionScale: 5, accumFrames: 1000 });
+    o.clamped4b = r.getParams();
+    for (const [k, v] of [['tonemap', 'filmic'], ['brightnessMode', 'foo'], ['performance', 'ultra'], ['Tmax', 'x']]) {
+      try { r.setParams({ [k]: v }); o['bad_' + k] = 'kabul edildi'; } catch (e) { o['bad_' + k] = e.constructor.name; }
+    }
+    r.setParams({ Tmax: 1e4, fCol: 1, exposure: 0.5, bloomStrength: 0.2, turbulenceAmp: 0.3, milkyWay: 0.6, interactionScale: null, accumFrames: null });
+
     // start/stop + kirli bayrak
-    r.setParams({ a: 0.9, thetaCam: 1.3, rCam: 50, fovY: 30, quality: 'mobile', resolutionScale: 0.5, maxDiskHits: 1, rCam: 50 });
+    r.setParams({ a: 0.9, thetaCam: 1.3, rCam: 50, fovY: 30, quality: 'mobile', resolutionScale: 0.5, maxDiskHits: 1, rCam: 50, dynamicResolution: false });
     const f0 = r.getStats().frames;
     r.start();
     await new Promise((res) => setTimeout(res, 1500));
     o.framesRunning = r.getStats().frames - f0;
     o.isRunning = r.isRunning();
     const st = r.getStats();
-    o.size = [st.width, st.height];
+    o.size = [st.traceWidth, st.traceHeight];
+    o.canvasSize = [st.width, st.height];
     r.stop();
     const f1 = r.getStats().frames;
     r.setParams({ phiCam: 1 });
@@ -61,13 +71,16 @@ try {
   });
 
   console.log('API anahtarları:', R.keys.join(', '));
-  for (const k of ['start', 'stop', 'setParams', 'getParams', 'renderDebug']) ok(R.keys.includes(k), `API: ${k}`);
+  for (const k of ['start', 'stop', 'setParams', 'getParams', 'renderDebug', 'renderDebugPhoto', 'renderOnce']) ok(R.keys.includes(k), `API: ${k}`);
   ok(R.defaults.a === 0.9 && R.defaults.quality === 'high' && R.defaults.diskIn === 'isco', 'varsayılan parametreler');
   ok(R.clamped.a === 0.998 && R.clamped.thetaCam < Math.PI / 2 + 1e-9 && R.clamped.fovY === 120 && R.clamped.maxDiskHits === 4 && R.clamped.rCam === 1000 && R.clamped.resolutionScale === 1, 'aşırı değerler kıstırılıyor (a≤0.998, fov≤120, hits≤4, r≤1000, ölçek≤1)');
   ok(R.clamped2.a === 0 && R.clamped2.thetaCam === 1e-3 && R.clamped2.rCam > 2, `alt sınırlar (a=0, θ_min=1e-3, r_cam>r₊: ${R.clamped2.rCam})`);
+  ok(R.newDefaults.Tmax === 1e4 && R.newDefaults.fCol === 1 && R.newDefaults.mode === 'band' && R.newDefaults.tonemap === 'aces' && R.newDefaults.perf === 'balanced', `4b varsayılanları: Tmax=${R.newDefaults.Tmax}, fCol=${R.newDefaults.fCol}, mod=${R.newDefaults.mode}, tonemap=${R.newDefaults.tonemap}, performans=${R.newDefaults.perf}`);
+  ok(R.clamped4b.Tmax === 2000 && R.clamped4b.fCol === 3 && R.clamped4b.exposure === 1000 && R.clamped4b.bloomStrength === 2 && R.clamped4b.turbulenceAmp === 1 && R.clamped4b.milkyWay === 0 && R.clamped4b.interactionScale === 1 && R.clamped4b.accumFrames === 64, '4b aşırı değerler kıstırılıyor (Tmax≥2000, fCol≤3, exposure≤1000, bloom≤2, türbülans≤1, milkyWay≥0, interactionScale≤1, accumFrames≤64)');
+  ok(R.bad_tonemap === 'RangeError' && R.bad_brightnessMode === 'RangeError' && R.bad_performance === 'RangeError' && R.bad_Tmax === 'TypeError', `geçersiz 4b değerleri: tonemap→${R.bad_tonemap}, brightnessMode→${R.bad_brightnessMode}, performance→${R.bad_performance}, Tmax→${R.bad_Tmax}`);
   ok(R.badQuality === 'RangeError' && R.badType === 'TypeError', `geçersiz kalite → ${R.badQuality}, geçersiz tür → ${R.badType}`);
   ok(R.isRunning && R.framesRunning >= 1, `start(): ${R.framesRunning} kare çizildi (yalnız kirli iken)`);
-  ok(R.size[0] === 80 && R.size[1] === 60, `resolutionScale=0.5 ⇒ çizim tamponu ${R.size.join('×')} (beklenen 80×60)`);
+  ok(R.size[0] === 80 && R.size[1] === 60 && R.canvasSize[0] === 160 && R.canvasSize[1] === 120, `resolutionScale=0.5 ⇒ iz sürme ${R.size.join('×')} (beklenen 80×60), tuval ${R.canvasSize.join('×')} (beklenen 160×120)`);
   ok(R.framesAfterStop === 0, `stop() sonrası kare çizilmiyor (${R.framesAfterStop})`);
   ok(R.drag.dphi < 0 && R.drag.dtheta < 0, `sürükleme: Δφ=${R.drag.dphi.toFixed(3)}, Δθ=${R.drag.dtheta.toFixed(3)}`);
   ok(R.wheel > 1.2, `tekerlek: r_cam × ${R.wheel.toFixed(3)}`);

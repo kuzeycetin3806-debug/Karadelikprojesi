@@ -44,6 +44,17 @@ TraceResult traceRay(State y0, float nuCam) {
     State kA = F;
 
     float hh = uKappa * naturalStep(y, F, sc.x);
+    // 4b EKSEN KORUMASI (yalnız uAxisKappa > 0 ve L ≠ 0): L ≠ 0 ışın kutup ekseninden θ_min ≈ L/p mesafesinde "sıçrar"
+    // (L²cosθ/sin³θ bariyeri). Doğal adım θ değişimini MUTLAK κ rad ile sınırlar; θ_min ≪ κ ise sıçrama çözülemez ve ışın
+    // sahte sonuç verir (4a'da merkez sütun: κ=0.05'te 108 pikselin 37'si R64'e aykırı; κ=5e-4'te 0). Çare: adım hem GÖRELİ θ
+    // değişimiyle (κ_a·s/|θ'|) hem bariyer kuvvetinin zaman ölçeğiyle (κ_a·√(s/|p_θ'|)) sınırlanır; s ≥ g_sMin tabanı L=0
+    // yakınında Zeno'yu önler. Eksenden uzak ışınlarda bu sınır hiç etkin değildir (sonuçlar bit-bit aynı).
+    if (uAxisKappa > 0.0 && g_hasL) {
+      float se = max(abs(sc.x), g_sMin);
+      float c1 = se / max(abs(F.th), 1e-30);
+      float c2 = sqrt(se / max(abs(F.pth), 1e-30));
+      hh = min(hh, uAxisKappa * min(c1, c2));
+    }
     State yn = rk4Step(y, F, hh);
     T.steps++;
 
