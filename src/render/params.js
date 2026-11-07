@@ -46,10 +46,10 @@ export const DEFAULT_PARAMS = Object.freeze({
   // --- Adım 4b — FİZİKSEL disk ışıması (docs/physics/disk.md §4.3)
   Tmax: 1e4, // K; T_eff(r) = Tmax · τ(r)  (Page–Thorne profili; tepe değer)
   fCol: 1, // renk düzeltmesi f_col (T_col = f_col T_eff); yıldız kütleli BH için ~1.7 (SH95)
-  brightnessMode: 'band', // 'band' (mod B, band-fotometrik: Y(T_obs)/Y_ref · f_col⁻⁴) | 'bolometric' (mod A: (g τ)⁴)
+  brightnessMode: 'band', // 'band' (mod B, band-fotometrik: Y(T_obs)/Y(T_max) · f_col⁻⁴; Y_ref f_col'dan bağımsız) | 'bolometric' (mod A: (g τ)⁴)
 
   // --- Adım 4b — görüntü hattı (HDR → ESTETİK sonrası işlem)
-  exposure: 0.5, // doğrusal çarpan (HDR radyans ölçeği; ton eşlemeden önce). Disk tepe Y_ref = 1; 0.5 ⇒ medyan disk ≈ orta gri, tepe doymaz
+  exposure: 0.5, // GÖSTERİM ölçeği (ne fizik ne estetik): doğrusal çarpan, ton eşlemeden önce. Mod B: g=1, τ=1 noktasında I = f_col⁻⁴ Y(f_col T_max)/Y(T_max) (f_col=1: 1; f_col=1.7, T_max=1e4: 0.416); 0.5 ⇒ medyan disk ≈ orta gri
   tonemap: 'aces', // ESTETİK: 'aces' | 'agx' | 'neutral' | 'none' (none = yalnız [0,1] kırpma)
   bloom: true, // ESTETİK
   bloomStrength: 0.2, // ESTETİK: eklenen bloom / sahne oranı (pozlama sonrası, ton eşleme öncesi)
@@ -236,7 +236,8 @@ export function deriveUniforms(p, width, height, canvasHeight = height) {
     starsOn: p.stars ? 1 : 0,
     starBrightness: p.starBrightness,
     milkyWay: p.milkyWay,
-    // yıldız PSF'i: ekran uzayında ~0.65 piksel (nihai tuval pikseli), gökte radyan olarak
+    // yıldız PSF'i (ESTETİK boyut): GÖRÜNTÜ düzleminde 0.65 nihai tuval pikseli; burada nominal (merceksiz) açı = 0.65 · piksel açısı. Shader PSF'i
+    // görüntü düzleminde uygular (yerel Jakobiyen ile gökyüzüne eşler) ve akıyı büyütme μ ile ölçekler (stars.glsl)
     starSigma: 0.65 * ((2 * tanHalfY) / Math.max(1, canvasHeight)),
     // bilgi amaçlı
     isco,

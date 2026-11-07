@@ -81,6 +81,10 @@ const SECTIONS = [
         fmt: (v, p, ctx) => (ctx.units ? `${fixed(v, 0)} M · ${km(v * ctx.units.lengthKm)}` : `${fixed(v, 0)} M`),
       },
       {
+        key: 'diskEdgeFade', kind: 'range', badge: 'aest', min: 0, max: 0.5, step: 0.01, enabled: (p) => p.disk,
+        get: (p) => p.diskEdgeFade, patch: (v) => ({ diskEdgeFade: v }), fmt: (v) => fixed(v, 2),
+      },
+      {
         key: 'fCol', kind: 'range', badge: 'phys', min: 1, max: 3, step: 0.05, enabled: (p) => p.disk,
         get: (p) => p.fCol, patch: (v) => ({ fCol: v }), fmt: (v) => fixed(v, 2),
       },
@@ -95,7 +99,7 @@ const SECTIONS = [
     id: 'image',
     controls: [
       {
-        key: 'exposure', kind: 'range', badge: 'aest', min: -6, max: 6, step: 0.1,
+        key: 'exposure', kind: 'range', badge: 'view', min: -6, max: 6, step: 0.1,
         get: (p) => Math.log2(p.exposure), patch: (v) => ({ exposure: Math.pow(2, v) }),
         fmt: (v) => `${signed(v, 1)} EV`,
       },
@@ -355,6 +359,7 @@ export function createPanel(ctx) {
       massErr, unitsOut),
     h('div.rows', null, ...rowsNodes),
     h('p.note.small', null, S.info.shadowNote),
+    h('p.note.small', null, S.info.shadowAngNote),
     h('p.note.small', null, S.info.docNote),
   ];
 
@@ -375,6 +380,8 @@ export function createPanel(ctx) {
       if (row.kind === 'L') {
         val.textContent = sig(v, 4); unit.textContent = ` ${S.units.M}`;
         if (u) kmEl.textContent = `≈ ${km(v * u.lengthKm)}`;
+      } else if (row.kind === 'A') {
+        val.textContent = fixed((v * 180) / Math.PI, 2); unit.textContent = S.units.deg;
       } else if (row.kind === 'W') {
         val.textContent = sci(v, 3); unit.textContent = ` ${S.units.perM}`;
         if (u) kmEl.textContent = `≈ ${sci(v / u.timeS, 3)} ${S.units.rads}`;

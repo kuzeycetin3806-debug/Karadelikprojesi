@@ -2,7 +2,7 @@
 // composite.frag.glsl — HDR → ekran.  (three'nin ton eşleme fonksiyonları başa eklenir: bkz. src/shaders/index.js)
 //
 //   FİZİKSEL girdi : uHdr = doğrusal radyans (ton eşlemesiz, pozlamasız)
-//   pozlama        : doğrusal çarpan (FİZİKSEL ölçek seçimi; sensör kazancı gibi)
+//   pozlama        : doğrusal çarpan — GÖSTERİM ölçeği (görüntüleme ölçeği; ne fizik ne estetik: radyansı ekran aralığına yerleştirir)
 //   ESTETİK        : + bloom (uBloom), ton eşleme (ACES/AgX/Neutral/yok), dither
 //   sRGB OETF      : standart kodlama (IEC 61966-2-1) — ekran gereği, estetik değil
 // ============================================================================

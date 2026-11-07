@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createServer } from 'vite';
 import { CHROMIUM_ARGS, PROJECT_ROOT } from '../render/harness.mjs';
 import { horizonRadii, ergosphereRadius, photonOrbitRadius, iscoRadius, frameDraggingOmega, shadowBoundary } from '../../src/physics/kerr.js';
+import { schwarzschildShadowSin } from '../../src/ui/info.js';
 import { radiativeEfficiency, diskTemperaturePeak } from '../../src/physics/disk.js';
 import { gravitationalRadiusKm } from '../../src/physics/units.js';
 
@@ -120,6 +121,8 @@ async function logicDesktop() {
   check('a=0: r_isco = 6', near(info.rIsco, 6, 1e-12), String(info.rIsco));
   check('a=0: ergosfer = 2, r₋ = 0, Ω_H = 0', near(info.ergo, 2) && info.rMinus === 0 && info.omegaH === 0);
   check('a=0: gölge genişliği = yüksekliği = 6√3', near(info.shadowW, 6 * Math.sqrt(3), 1e-6) && near(info.shadowH, 6 * Math.sqrt(3), 1e-6), `${info.shadowW}, ${info.shadowH}`);
+  check('a=0: açısal gölge ψ (r=50) = asin(3√3√(1−2/50)/50)', near(info.shadowAng, Math.asin(3 * Math.sqrt(3) * Math.sqrt(1 - 2 / 50) / 50), 1e-12), String(info.shadowAng));
+  check('açısal gölge formülü: r=1e6 → sinψ·r → 3√3', near(schwarzschildShadowSin(1e6) * 1e6, 3 * Math.sqrt(3), 2e-6), String(schwarzschildShadowSin(1e6) * 1e6));
   check('a=0: η ≈ 0,0572', Math.abs(info.eta - 0.0572) < 1e-4, String(info.eta));
   check('a=0: Page–Thorne T_max konumu ≈ 9,55 M', Math.abs(info.tPeak - 9.55) < 0.05, String(info.tPeak));
 
@@ -140,10 +143,13 @@ async function logicDesktop() {
       omegaCam: frameDraggingOmega(1, a, p.rCam, p.thetaCam), tPeak: diskTemperaturePeak(1, a, pro).r,
     };
     // tPeak: düz bir maksimumun argmax'ı (altın oran araması) motorlar arası ~1e-8 oynar → 1e-6 toleransı
-    const bad = Object.keys(exp).filter((k) => !near(info[k], exp[k], k === 'tPeak' ? 1e-6 : 1e-12));
+    const bad = Object.keys(exp).filter((k) => !near(info[k], exp[k], (k === 'tPeak' || k.startsWith('shadow')) ? 1e-6 : 1e-12));
     check(`bilgi ekranı = physics (a=${a}, ${pro ? 'prograd' : 'retrograd'})`, bad.length === 0, bad.length ? `farklı: ${bad.map((k) => `${k} ekran=${info[k]} beklenen=${exp[k]}`).join('; ')} (θ=${p.thetaCam})` : `r_isco=${info.rIsco.toFixed(4)} η=${info.eta.toFixed(4)}`);
   }
 
+  await page.evaluate(() => window.__karadelik.ui.set({ a: 0.5 }));
+  await sleep(150);
+  check('a>0: açısal gölge satırı "—" (NaN)', Number.isNaN((await readInfo()).shadowAng));
   // --- kütle → km
   await page.evaluate(() => { document.querySelector('[data-sec=info]').open = true; });
   await page.evaluate(() => window.__karadelik.ui.set({ a: 0 }));
@@ -169,6 +175,11 @@ async function logicDesktop() {
   check('T_max log kaydırıcı (500/1000 → √(2000·10⁶)·… )', near((await P(page)).Tmax, 2000 * Math.pow(500, 0.5), 1e-9), String((await P(page)).Tmax));
   await page.fill('#ui-diskOut', '35');
   check('dış yarıçap → diskOut', (await P(page)).diskOut === 35);
+  await page.fill('#ui-diskEdgeFade', '0.25');
+  check('dış kenar yumuşatma → diskEdgeFade', near((await P(page)).diskEdgeFade, 0.25, 1e-9), String((await P(page)).diskEdgeFade));
+  check('diskEdgeFade ESTETİK rozetli', (await page.textContent('[data-ctl=diskEdgeFade] .badge')).trim() === 'ESTETİK');
+  check('pozlama GÖSTERİM rozetli', (await page.textContent('[data-ctl=exposure] .badge')).trim() === 'GÖSTERİM');
+  check('gölge etiketi "sonsuzdaki gözlemci"', (await page.textContent('[data-info=shadowW] .row-label')).includes('sonsuzdaki gözlemci') && !(await page.textContent('[data-info=shadowW]')).includes('ekrandaki'));
   await page.fill('#ui-fCol', '1.7');
   check('f_col → fCol', near((await P(page)).fCol, 1.7, 1e-9));
   await page.click('label[for="ui-brightnessMode-bolometric"]');
@@ -200,8 +211,8 @@ async function logicDesktop() {
   p = await P(page);
   check('performans / kalite / çözünürlük ölçeği', p.performance === 'quality' && p.quality === 'mobile' && near(p.resolutionScale, 0.5, 1e-9));
   await page.uncheck('#ui-disk');
-  await sleep(300);
-  check('disk kapat → disk=false, Tmax devre dışı', (await P(page)).disk === false && (await page.isDisabled('#ui-Tmax')));
+  await sleep(1500);
+  check('disk kapat → disk=false, Tmax devre dışı', (await P(page)).disk === false && (await page.isDisabled('#ui-Tmax')), `disk=${(await P(page)).disk} dis=${await page.isDisabled('#ui-Tmax')}`);
 
   // --- ön ayarlar
   const presets = { schwarzschild: [0, 85], kerr09: [0.9, 75], kerr0998: [0.998, 80], faceOn: [0.9, 10] };

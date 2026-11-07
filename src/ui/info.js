@@ -35,6 +35,15 @@ export function shadowExtent(a, thetaCam) {
   return value;
 }
 
+/**
+ * Schwarzschild (a = 0): r konumundaki statik gözlemcinin gördüğü gölge açısal yarıçapının sinüsü.
+ * sin ψ = 3√3 M·√(1 − 2M/r)/r  (Synge 1966; b_c = 3√3 M). Yalnız r > 3M (foton küresi dışı) için.
+ */
+export function schwarzschildShadowSin(r) {
+  if (!(r > 3)) return NaN;
+  return (3 * Math.sqrt(3) * Math.sqrt(1 - 2 / r)) / r;
+}
+
 const safe = (fn) => {
   try {
     return fn();
@@ -62,12 +71,13 @@ export function computeInfo(p) {
     omegaH: frameDraggingOmega(1, a, hz.rPlus, Math.PI / 2),
     shadowW: sh.width,
     shadowH: sh.height,
+    shadowAng: a === 0 ? Math.asin(schwarzschildShadowSin(rCam)) : NaN,
     omegaCam: safe(() => frameDraggingOmega(1, a, rCam, thetaCam)),
     tPeak: safe(() => diskTemperaturePeak(1, a, prograde).r),
   };
 }
 
-/** Birim türü: 'L' uzunluk (M→km), 'W' açısal hız (M⁻¹ → rad/s), 'P' boyutsuz. */
+/** Birim türü: 'L' uzunluk (M→km), 'W' açısal hız (M⁻¹ → rad/s), 'P' boyutsuz, 'A' açı (rad → derece gösterilir). */
 export const INFO_ROWS = [
   { key: 'rPlus', kind: 'L' },
   { key: 'rMinus', kind: 'L' },
@@ -79,6 +89,7 @@ export const INFO_ROWS = [
   { key: 'omegaH', kind: 'W' },
   { key: 'shadowW', kind: 'L' },
   { key: 'shadowH', kind: 'L' },
+  { key: 'shadowAng', kind: 'A' },
   { key: 'omegaCam', kind: 'W' },
   { key: 'tPeak', kind: 'L' },
 ];

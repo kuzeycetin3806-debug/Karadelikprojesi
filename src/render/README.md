@@ -11,7 +11,7 @@ Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku se
 | `src/render/post.js` | **ESTETİK** sonradan işleme: çok seviyeli bloom (Jimenez) + kompozit (pozlama, ACES/AgX/Neutral, sRGB, dither) |
 | `src/render/controls.js` | GEÇİCİ fare/dokunmatik yörünge kontrolü (kalıcı arayüzü arayüz ajanı yapacak) |
 | `src/shaders/*.glsl`, `index.js` | `common` → `trig` → `geodesic` → `integrator` → `camera` → `crossing` → `escape` → `trace` → `noise` → `photometry` → `turbulence` → `stars` → `shading` → `main.frag`; post: `bloom_down/bloom_up/composite.frag.glsl`. `buildFragmentShader({debug, photo, nativeTrig})` birleştirir |
-| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-check.mjs`**, `api-smoke.mjs`, `perf.mjs`, `visual-snapshots.mjs`, `harness.mjs`. **`node --test` ile çalışmaz** |
+| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek; üretim yolu + R64'e mutlak eşikler + uzamsal küme denetimi), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-check.mjs`**, `api-smoke.mjs`, `perf.mjs`, `visual-snapshots.mjs`, `harness.mjs`, `guard-assert.mjs` (GPU κ_a = CPU kappaAxis). **`node --test` ile çalışmaz** |
 
 ## 1. Hat
 
@@ -19,12 +19,12 @@ Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku se
   İZ SÜRME geçişi (src/shaders, tam çözünürlük × ölçek)                      FİZİKSEL (+ estetik doku/dağılım seçimleri, §5)
     piksel → ZAMO kamera → Kerr geodeziği (RK4) → disk vuruşu | kaçış yönü | yakalanma
     disk vuruşu  : τ(r) tablosu, T_obs = g_cam f_col T_max τ, kara cisim rengi/parlaklığı        → doğrusal HDR radyans (RGBA16F)
-    kaçış        : yön 3B birim vektör → yıldız alanı + Samanyolu, T_obs = ν_cam/ν_∞ T_star
+    kaçış        : yön 3B birim vektör → yıldız alanı (nokta kaynak: görüntü düzleminde PSF, akı ∝ büyütme μ) + Samanyolu, T_obs = ν_cam/ν_∞ T_star
     jitter'lı kareler ortalama (ilerleyici AA); sonuç = doğrusal radyans, pozlamasız, ton eşlemesiz
         │
-  BLOOM (isteğe bağlı)   ×exposure → 13-tap aşağı (Karis) ×5 seviye → çadır yukarı örnekleme       ESTETİK
+  BLOOM (isteğe bağlı)   ×exposure → 13-tap aşağı (Karis) ×5 seviye → çadır yukarı örnekleme       ESTETİK (girdi pozlaması gösterim)
         │
-  KOMPOZİT               ×exposure + bloom → ton eşleme (ACES | AgX | Neutral | yok) → sRGB OETF → dither     ESTETİK / gösterim
+  KOMPOZİT               ×exposure (GÖSTERİM) + bloom → ton eşleme (ACES | AgX | Neutral | yok) → sRGB OETF → dither     bloom/ton eşleme ESTETİK; exposure/sRGB gösterim
 ```
 `exposure`, bloom ve ton eşleme **yalnız sonradan işlemdir**: bunlar değişince iz sürme yeniden çalışmaz (yalnız bloom + kompozit; `pipeline-check` T1).
 HDR hedefi RGBA16F'tir (yarım float, doğrusal filtrelenebilir; `EXT_color_buffer_float` ya da `EXT_color_buffer_half_float` gerekir). İkisi de yoksa 8-bit **acil yedek** hedef (radyans/8; bloom yok; §9).
@@ -51,7 +51,7 @@ E32–R64 uyuşmazlıklarının (39, 9, 44, 47, 10, 2, 36 piksel) **tamamı bu k
 
 **Çare (yalnız GPU, yalnız `L ≠ 0`):** `trace.glsl` adımı ayrıca `κ_a·max(|sinθ|, s_min)/|θ'|` (göreli θ değişimi) ve `κ_a·√(max(|sinθ|, s_min)/|p_θ'|)` (bariyer kuvvetinin zaman ölçeği) ile sınırlar;
 `κ_a = 0.15`, `s_min = ¼|L|/√(Q + a² + L²)` (L=0 yakınında Zeno'yu önler). Eksenden uzak ışınlarda sınır hiç etkin değildir (sonuç bit-bit aynı).
-**Debug yolunda (`renderDebug`) varsayılan KAPALI** ⇒ `gpu-validate` 4a'nın birebir portunu sınamaya devam eder; `renderDebug(w, h, {axisGuard:true})` korumalı yolu verir.
+**Debug yolları (`renderDebug`, `renderDebugPhoto`) varsayılanı `params.axisGuard`** (görsel modla AYNI, yani açık: üretim yolu sınanır). 4a'nın korumasız birebir portu yalnız açık `{axisGuard:false}` ile istenir (`gpu-validate` ikinci geçişi). *Düzeltme (denetim 1b7c0de Ö1/Ö2): önceki sürümde debug varsayılanı korumasızdı, CPU E32 ise korumalı olduğundan `gpu-validate` kırmızıya dönmüş ve üretim yolu hiç sınanmamıştı.* GPU'ya gerçekten yüklenen κ_a `getStats().uniforms.axisKappa` ile okunur; doğrulama betikleri bunun CPU `DEFAULT_OPTIONS.kappaAxis` (=0.15) ile eşit olduğunu assert eder (`guard-assert.mjs`).
 κ_a = 0.05 doğruluğu iyileştirmedi, ortalama adımı %8–29 artırdı ⇒ 0.15 seçildi (ort. adım artışı ≈ %1).
 
 ## 3. Parametre sözleşmesi (arayüz ajanı için)
@@ -81,20 +81,20 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | `disk` | bool | true | false: disk yok, yalnız merceklenme |
 | `maxDiskHits` | 1 … 4 | 1 | **1 = opak disk**; >1 ikincil/üçüncül görüntüler yarı saydam (α=0.7, ESTETİK) |
 | `quality` | `'high'` ∣ `'mobile'` | `'high'` | high: κ=0.05, N=512; mobile: κ=0.10, N=256 |
-| `axisGuard` | bool | true | §2.1 (görsel mod) |
+| `axisGuard` | bool | true | §2.1 (görsel mod **ve** debug yolları varsayılanı) |
 | `analyticFate`, `rEscape`, `kappa`, `maxSteps`, `planeGuard` | — | true, `'auto'`, null, null, true | gelişmiş/test; `rEscape 'auto'` = **max(300, 2 r_cam, 6 b_max)**, b_max = r_cam·tan(yarı-köşegen açı) (4b: geniş açı + uzak kamerada kaçış yönü hatası ≈ (b/r_esc)³ büyür) |
 
 ### 3.2 Disk ışıması (FİZİKSEL)
 | Parametre | Tür / aralık | Varsayılan | Açıklama |
 |---|---|---|---|
 | `Tmax` | K, [2000, 1e6] | 1e4 | T_eff(r) = Tmax·τ(r) (Page–Thorne profilinin tepe değeri). Kullanıcı doğrudan seçer; (M, ṁ) → `diskMaxTemperatureK` yalnız kısayol |
-| `fCol` | [1, 3] | 1 | renk düzeltmesi: T_col = f_col T_eff (yıldız kütleli BH için ~1.7). **Mod B'de parlaklık f_col⁻⁴ ile düşer** ⇒ f_col>1'de `exposure` artırılmalı |
+| `fCol` | [1, 3] | 1 | renk düzeltmesi: T_col = f_col T_eff (yıldız kütleli BH için ~1.7). **Mod B'de parlaklık fiziksel olarak değişir** (§7.1: `f_col⁻⁴·Y(f_col T)/Y(T_max)`; T_max=1e4, f_col=1.7 ⇒ tepe ×0.416) ⇒ f_col>1'de `exposure` artırmak gerekebilir |
 | `brightnessMode` | `'band'` ∣ `'bolometric'` | `'band'` | mod B (band-fotometrik, fiziksel olarak doğru görünür-band kamera) ∣ mod A (bolometrik, (g τ)⁴). Renk her ikisinde aynıdır |
 
-### 3.3 Görüntü hattı (ESTETİK sonrası işlem; iz sürme gerektirmez)
+### 3.3 Görüntü hattı (sonrası işlem; iz sürme gerektirmez) — `exposure` GÖSTERİM, bloom/ton eşleme ESTETİK
 | Parametre | Tür / aralık | Varsayılan | Açıklama |
 |---|---|---|---|
-| `exposure` | [1e-3, 1e3], doğrusal çarpan | 0.5 | HDR radyans ölçeği. Disk tepe parlaklığı Y_ref = 1 (mod B); 0.5 ⇒ medyan disk ≈ orta gri, tepe doymaz. Önerilen kaydırıcı: log (EV = log₂) |
+| `exposure` | [1e-3, 1e3], doğrusal çarpan | 0.5 | **GÖSTERİM ölçeği** (görüntüleme ölçeği; ne fizik ne estetik — radyansı ekran aralığına yerleştirir). Mod B'de g=1, τ=1 noktasında I = f_col⁻⁴Y(f_col T_max)/Y(T_max) (f_col=1: 1); 0.5 ⇒ medyan disk ≈ orta gri, tepe doymaz. Önerilen kaydırıcı: log (EV = log₂) |
 | `tonemap` | `'aces'`∣`'agx'`∣`'neutral'`∣`'none'` | `'aces'` | `none` = yalnız [0,1] kırpma (fiziksel radyansı olduğu gibi gösterir) |
 | `bloom` | bool | true | |
 | `bloomStrength` | [0, 2] | 0.2 | sahne enerjisinin yeniden dağıtılan kesri (Σ radius^i ile normalize) |
@@ -109,7 +109,7 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | `animate` | bool | true | desen yerel Kepler Ω(r) ile akar (sürekli render gerektirir; §6) |
 | `timeScale` | M/s, [0, 200] | 20 | animasyon hızı (1 s = 20 M; r=6'da yörünge 92 M ≈ 4.6 s) |
 | `diskTime` | null ∣ sayı (M) | null | null: gerçek zaman; sayı: sabit (test/anlık görüntü; desen 50 M'de yinelenir) |
-| `diskEdgeFade` | [0, 0.5] | 0.1 | dış kenar yumuşatma (disk genişliği kesri; 0 = sert) |
+| `diskEdgeFade` | [0, 0.5] | 0.1 | **ESTETİK, varsayılan AÇIK.** Dış kenar yumuşatma (disk genişliği kesri; 0 = sert): smoothstep ile **dış %10'luk bölgede (r ∈ [r_out − 0.1(r_out − r_in), r_out]) Page–Thorne ışımasını DEĞİŞTİRİR** (parlaklık 1 → 0). Fiziksel ışıma isteniyorsa `0` yapılmalıdır |
 | `stars` | bool | true | yıldız alanı |
 | `starBrightness` | [0, 10] | 1 | yıldız ölçeği |
 | `milkyWay` | [0, 2] | 0.6 | Samanyolu bandı (0 = yok) |
@@ -138,12 +138,12 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 
 ## 4. Debug modları
 
-**`renderDebug(width, height, {axisGuard=false}?)`** (4a düzeni **değişmedi**): 3 × RGBA32F (WebGL2 MRT, `EXT_color_buffer_float` şart). `Float32Array` uzunluğu `width·height·12`; piksel (i, j) (**j = 0 üst satır**) için
+**`renderDebug(width, height, {axisGuard = params.axisGuard}?)`** (4a düzeni **değişmedi**): 3 × RGBA32F (WebGL2 MRT, `EXT_color_buffer_float` şart). `Float32Array` uzunluğu `width·height·12`; piksel (i, j) (**j = 0 üst satır**) için
 `(j·width + i)·12 + DEBUG_FIELDS.indexOf(alan)`; `DEBUG_FIELDS` = `status, r1, gCam1, steps, thetaInf, phiInf, n1, hitCount, reason, phi1, r2, gCam2`.
 `status`: 0 yakalandı · 1 kaçtı · 2 disk. `reason`: 0 normal · 1 bütçe bitti · 2 NaN. Vuruş yoksa `r1=−1, gCam1=0, n1=0, phi1=−1`; kaçış yönü bilinmiyorsa `thetaInf = phiInf = −1`.
 
-**`renderDebugPhoto(width, height, {axisGuard=false}?)`** (4b; ilk disk vuruşu): `PHOTO_FIELDS` = `status, hitCount, r1, gCam1, tau, Tobs, I, log10Y, R, G, B, turbEdge`.
-`tau` = T_eff/T_max, `Tobs` = g_cam f_col T_max τ (K), `I` = parlaklık çarpanı (türbülans/kenar **hariç**; mod A: (gτ)⁴, mod B: Y(T_obs)/Y_ref·f_col⁻⁴), `log10Y` = LUT/seri/Wien log₁₀Y(T_obs),
+**`renderDebugPhoto(width, height, {axisGuard = params.axisGuard}?)`** (4b; ilk disk vuruşu): `PHOTO_FIELDS` = `status, hitCount, r1, gCam1, tau, Tobs, I, log10Y, R, G, B, turbEdge`.
+`tau` = T_eff/T_max, `Tobs` = g_cam f_col T_max τ (K), `I` = parlaklık çarpanı (türbülans/kenar **hariç**; mod A: (gτ)⁴, mod B: Y(T_obs)/Y(T_max)·f_col⁻⁴), `log10Y` = LUT/seri/Wien log₁₀Y(T_obs),
 `R,G,B` = nihai disk radyansı (`I · kromatisite · türbülans · kenar`), `turbEdge` = ESTETİK çarpanların çarpımı.
 
 ## 5. Fiziksel ve estetik öğelerin ayrımı
@@ -154,17 +154,17 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | `g_cam` (gravitasyonel kayma + Doppler), kamera tetradı, ışık sapması/merceklenme | **FİZİKSEL** | `camera/crossing.glsl` |
 | Disk sıcaklık profili τ(r) (Page–Thorne), T_obs = g_cam f_col T_max τ, kara cisim kromatisitesi, mod A/B parlaklığı, T>1e5 K serisi, T<1e3 K Wien | **FİZİKSEL** | `photometry.glsl`, `photometry.js`, `src/physics/disk.js` |
 | Opak disk (ilk vuruşta durma), yakalanma = siyah | **FİZİKSEL** (model) | `trace.glsl`, `shading.glsl` |
-| Yıldız yönü eşlemesi (3B birim vektör, merceklenme), yıldız renk sıcaklığı → kara cisim, T_obs = ν_cam/ν_∞·T_star, band-luminans kayması, yüzey parlaklığı korunumu (ayak izi süzmesi) | **FİZİKSEL** | `stars.glsl` |
-| Yıldız sayısı/parlaklık dağılımı (kesik Pareto)/PSF boyu, sıcaklık dağılımı, **Samanyolu** (şekil, renk, toz, yıldız artışı) | **ESTETİK** | `stars.glsl` |
+| Yıldız yönü eşlemesi (3B birim vektör, merceklenme), yıldız renk sıcaklığı → kara cisim, T_obs = ν_cam/ν_∞·T_star, band-luminans kayması, **nokta kaynak büyütmesi (akı ∝ μ = Ω_nominal/\|∂d/∂x × ∂d/∂y\|) ve görüntü düzleminde PSF boyutunda kalma** | **FİZİKSEL** | `stars.glsl` |
+| Yıldız sayısı/parlaklık dağılımı (kesik Pareto)/**PSF boyu σ_s=0.65 piksel**/**büyütme tavanı `STAR_MU_CAP`=24**, sıcaklık dağılımı, ¼ piksel² ayak izi süzmesi, **Samanyolu** (şekil, renk, toz, yıldız artışı) | **ESTETİK** | `stars.glsl` |
 | Yönü bilinmeyen halka pikselleri için gökyüzü ortalaması | **ESTETİK** (yaklaşım) | `stars.glsl` `skyMeanRadiance` |
-| **Disk türbülans dokusu** (Kepler Ω ile akan, çift-fazlı akış haritası), dış kenar yumuşatma, `maxDiskHits>1` yarı saydamlık (α=0.7) | **ESTETİK** | `turbulence.glsl`, `shading.glsl` |
-| Pozlama çarpanı | gösterim ölçeği | `composite.frag.glsl` |
+| **Disk türbülans dokusu** (Kepler Ω ile akan, çift-fazlı akış haritası), **dış kenar yumuşatma `diskEdgeFade` (varsayılan AÇIK: dış %10'da Page–Thorne ışımasını değiştirir)**, `maxDiskHits>1` yarı saydamlık (α=0.7) | **ESTETİK** | `turbulence.glsl`, `shading.glsl` |
+| Pozlama çarpanı `exposure` | **GÖSTERİM** (görüntüleme ölçeği; ne fizik ne estetik) | `composite.frag.glsl` |
 | **Bloom**, **ton eşleme** (ACES/AgX/Neutral), dither | **ESTETİK** | `bloom_*.frag.glsl`, `composite.frag.glsl` |
 | sRGB OETF (IEC 61966-2-1) | gösterim kodlaması (estetik değil) | `composite.frag.glsl` |
 | Jitter'lı kare biriktirme (ilerleyici AA), uyarlamalı çözünürlük, dinamik ölçek | etkileşim / kalite | `index.js` |
 | `sinCos` (trig.glsl) | **FİZİKSEL** (sayısal kesinlik) | `trig.glsl` |
 
-`bloom:false, tonemap:'none'` ⇒ tuval = sRGB(min(1, exposure·radyans)) (`pipeline-check` T4: maks 1.45/255).
+`bloom:false, tonemap:'none'` ⇒ tuval = sRGB(min(1, exposure·radyans)) (`pipeline-check` T4: maks 1.45/255). Mod B f_col normalizasyonu: Y_ref = Y(T_max) (f_col'dan bağımsız) ⇒ f_col değişimi FİZİKSEL parlaklık değişimini verir; `exposure` yalnız gösterim ölçeğidir.
 
 ## 6. Performans ve etkileşim davranışı
 
@@ -181,7 +181,7 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 * **Tablolar** (CPU f64 → doku): `diskProfileTable(a, prograde, r_out, 256)` → **R32F 256×1**, `s = √((r−r_isco)/(r_out−r_isco))`; `blackbodyLUT(256)` → **RGBA32F 256×1** `[R,G,B (Y=1), log₁₀Y]`, log₁₀T ∈ [3,5].
   Mobil güvenliği: ikisi de `NEAREST` + shader'da elle `mix` (`OES_texture_float_linear` gerekmez); örnekleyiciler `highp`.
 * **Sıcaklık:** `T_obs = g_cam · f_col · T_max · τ(r)` (`hit.gCam`).
-* **Mod B (varsayılan):** `I = 10^(log₁₀Y(T_obs) − log₁₀Y_ref) · f_col⁻⁴`, `Y_ref = Y(f_col T_max)` (CPU'da integralden). g³/g⁴ **ayrıca uygulanmaz** (g bağımlılığı Y(gT) içindedir). **Mod A:** `I = (g_cam τ)⁴`.
+* **Mod B (varsayılan):** `I = 10^(log₁₀Y(T_obs) − log₁₀Y_ref) · f_col⁻⁴`, **`Y_ref = Y(T_max)`** (CPU'da integralden; **f_col'dan BAĞIMSIZ** — denetim K2). Önceki sürümde `Y_ref = Y(f_col T_max)` idi ⇒ tepe f_col⁻⁴'e düşmüyor, f_col⁻⁴ ile normalize edilip fiziksel parlaklık değişimi yutuluyordu (T_max=1e4, f_col=1.7: fizik 0.416, kod 0.120). Şimdi g=1, τ=1'de `I = f_col⁻⁴Y(f_col T_max)/Y(T_max)` (=0.416). g³/g⁴ **ayrıca uygulanmaz** (g bağımlılığı Y(gT) içindedir). **Mod A:** `I = (g_cam τ)⁴` (f_col kaybolur).
 * **LUT dışı:** T > 1e5 K: kromatisite 1e5 K'de sabit; `log₁₀Y = log₁₀Y_LUT(1e5) + log₁₀(a x − b + c/x)`, x = T/1e5 — katsayılar `blackbodyLuminanceSeries`'ten (3 noktadan 3×3 çözüm; uniform `uSeries`), 1e5 K'ye **çapalı** (süreksizlik yok).
   T < 1e3 K: kromatisite 1e3 K'de sabit, `log₁₀Y −= (2.3e4/ln10)(1/T − 10⁻³)` (Wien; ±%30 @600 K — `disk.md §5.4`).
 * ISCO'dan içeride ışıma ve disk **yok** (`diskIn ≥ r_isco`).
@@ -190,10 +190,10 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 Yön = sonsuzdaki BL yönünden 3B birim vektör `(sinθ_∞cosφ_∞, sinθ_∞sinφ_∞, cosθ_∞)` (**enlem-boylam örneklemesi yok**, 4a'nın kutup dikişi gitti). Kameradan bağımsız ⇒ yıldızlar gökte sabit.
 **Dikişsiz 3B kafes:** birim hücreli kafeste, merkezi `|c| ∈ [R−½, R+½]` kabuğunda olan hücrelerde en çok 1 yıldız (PCG tamsayı hash; GPU'dan bağımsız deterministik), yönü `normalize(konum)`; piksel için 27 hücre taranır ⇒ küp dikişi/hücre sınırı kesilmesi yok.
 İki katman: parlak/seyrek (R=45, ≈5.6 bin yıldız, F ∈ [0.1, 8]) ve sönük/yoğun (R=130, ≈64 bin yıldız, F ∈ [0.016, 0.32]); kesik Pareto parlaklık; sıcaklık 3000–30000 K (`blackbodyLUT`, soğuk çoğunlukta); Samanyolu bandında yıldız olasılığı artar.
-Yıldız = gökte σ_s Gauss disk (σ_s = 0.65 nihai tuval pikseli) ⇒ **yüzey parlaklığı korunur**: merceklenmeyle büyür/yay olarak uzar. Ayak izi (`dFdx/dFdy` yön türevi): `σ_eff² = σ_s² + (ayak izi/2)²`, genlik ×σ_s²/σ_eff² ⇒ küçülen bölgelerde yıldız kaybolmaz (sönük/geniş olur).
-Komşu piksel yönü geçersizse (kaçış/yakalanma/disk sınırı) nominal ayak izi kullanılır. **Fiziksel kayma:** `T_obs = (ν_cam/ν_∞) T_star` ve band-luminans oranı 10^(logY(T_obs) − logY(T)).
+**Yıldız = NOKTA KAYNAK (denetim Ö3).** Önceki sürüm yıldızı *gökyüzü düzleminde* σ_s=0.65 piksel Gauss olarak çiziyor, büyütülen yıldızı sabit tepe parlaklıkla **yay** olarak uzatıyordu ve bunu "fiziksel" diye sunuyordu; oysa bu estetik bir modelin (sonlu açısal çaplı kaynak varsayımı) sonucuydu. Gerçek nokta kaynağın görüntüsü ekranda PSF boyutunda kalır ve **akısı büyütme μ ile ölçeklenir**. Şimdi: yerel gökyüzü Jakobiyeni `J = [dFdx(d), dFdy(d)]` (gök yönü / iz sürme pikseli); bir yıldıza göre **ekran ofseti** `δ = J⁺(d − d_yıldız)` (piksel; `J⁺ = (JᵀJ)⁻¹Jᵀ`; Gram matrisine `(0.02 fp_nom)²` eklenir, böylece ddx≈0 ya da ddx∥ddy'de det→0 olmaz), PSF = `exp(−|δ|²/2σ_eff²)` — **görüntü düzleminde** izotropik; `μ = Ω_nominal/|dFdx(d)×dFdy(d)|`, `Ω_nominal = fp_nom²(1+x²+y²)^(−3/2)` (merceksiz piksel katı açısı, perspektif düzeltmeli); genlik = `F·min(μ, μ_cap)·σ_s²/σ_eff²`, `σ_eff² = σ_s² + ¼` (¼ piksel² ayak izi süzmesi: kaba ızgarada yıldız kaybolmasın, enerji korunur). `μ_cap = STAR_MU_CAP = 24` **ESTETİK tavandır** (gerçek μ kritik eğride → ∞). Sonuç: merceklenmiş yıldız yay olarak uzamaz, **nokta kalır ve μ kadar parlaklaşır/sönükleşir**; yay yalnız sonlu çaplı kaynağın ya da yaygın ışığın (Samanyolu) özelliğidir. Tutarlılık ölçümü (stars-only, 640×480, 16 kare, bölge toplamı eski↔yeni): uzak bölgelerde toplam enerji ±%20 içinde (sonlu yıldız örneği gürültüsü dahil) (eski yüzey-parlaklığı modeliyle aynı; μ≈1'de aynı yıldız aynı tepe değeri verir: 0.0207 = 0.0207), tepe değerler BH yakınında ×1.4–4.7 artar (μ>1).
+Komşu piksel yönü geçersizse (kaçış/yakalanma/disk sınırı) nominal (merceksiz, izotrop, μ=1) harita kullanılır. **Fiziksel kayma:** `T_obs = (ν_cam/ν_∞) T_star` ve band-luminans oranı 10^(logY(T_obs) − logY(T)).
 **Samanyolu (ESTETİK):** galaktik düzlem normali ve "merkez" yönü sabit (disk düzlemine paralel değil); çekirdek + halo + bulge; 4 oktavlı 3B değer gürültüsü (bulutsu/toz şeridi), ayak izine göre oktav söndürme.
-Dar görüş alanında (≈30°) yıldızlar yay şeklinde görünür: **bu fiziksel** (r_cam=50'de ekran kenarında bile sapma ≈ görüş alanı kadar).
+**Not (düzeltme):** önceki sürümde burada "dar görüş alanında yıldızlar yay şeklinde görünür: bu fiziksel" yazıyordu; **yanlıştı** — yaylar estetik PSF modelinden geliyordu. Şimdi yıldızlar noktadır; gerçek bir yıldızın açısal çapı (≲ 1e-8 rad) PSF'in çok altında olduğundan nokta kaynak varsayımı doğrudur. Sınır: dFdx/dFdy 2×2 dörtlüde sabit olduğundan μ ve ofset doğrusallaştırması kritik eğri/gölge kenarına çok yakın piksellerde (J'nin hızla değiştiği yerlerde) kabadır; tavan ve düzenleme bu durumda yıldızı kaybetmek ya da tek piksele sıkıştırmakla sınırlıdır.
 
 ### 7.3 Yönü bilinmeyen (`thInf = −1`, bütçesi biten, kaçar) halka pikselleri
 Bu ışınlar kritik eğriye sonsuz yakındır (çok tur fotonküresinde dolanır) ve gökyüzünün **her yerini** örnekler ⇒ çözülmemiş yıldız toplamı ≈ yaygın ortalama. Yaklaşım: **sabit düşük gökyüzü ortalaması** (`skyMeanRadiance`: Samanyolu ortalaması + zayıf yıldız parıltısı,
@@ -201,69 +201,85 @@ Bu ışınlar kritik eğriye sonsuz yakındır (çok tur fotonküresinde dolanı
 
 ## 8. Doğrulama
 
-### 8.1 Çekirdek (`tests/render/gpu-validate.mjs`) — 4a ile **aynı sayılar** (debug yolu koruma kapalı = birebir port)
-Üç sonuç aynı kamera/ızgarada karşılaştırılır: **GPU** (SwiftShader, gerçek f32), **E32** (CPU `traceRay`, `rk4`+`f32`+`hamilton`+`hermite`) ve **R64** (CPU DP5(4), rtol 1e-10). Izgara 96×72 (tek-ızgara 97×73), r_out = 20, r_esc = 300.
-Kabul eşikleri iki katmanlıdır (4a, değişmedi): (1) GPU–E32 port doğruluğu, mutlak (sınıf/vuruş uyuşmazlığı ≤ %0.2; medyan Δr ≤ 2e-5, p99 ≤ 5e-3; medyan ΔgCam ≤ 1e-5, p99 ≤ 2e-4; yön medyan ≤ 1e-5, p99 ≤ 1e-3 rad; adım== ≥ %98);
-(2) GPU–R64 taban çizgisine göreli (≤ 2× E32–R64 + küçük taban) ve README §7'ye dayalı mutlak tavanlar.
+### 8.1 Çekirdek (`tests/render/gpu-validate.mjs`) — ÜRETİM yolu + R64'e MUTLAK eşikler
+**Düzeltme (denetim 1b7c0de Ö1/Ö2).** Önceki sürüm GPU debug yolunu korumasız (4a portu), CPU E32'yi korumalı çalıştırıp kırmızıya dönmüştü; ayrıca GPU–R64 eşikleri E32–R64 *taban çizgisine* göreliydi (E32'nin ortak hatasını gizler) ve README'deki "GEÇTİ" iddiası geçersizdi. Şimdi:
 
-**Son koşu (4b kodu, `node tests/render/gpu-validate.mjs`): `KABUL EŞİKLERİ: GEÇTİ`, tarayıcı konsolu hata/uyarı YOK.** Özet (GPU–E32 uyuşmazlık / Δr medyan–p99 / ΔgCam medyan–p99 / yön medyan–p99 rad / adım==; GPU–R64 uyuşmazlık = taban E32–R64):
+* **GPU = üretim yolu:** `renderDebug(w, h)` seçeneksiz (⇒ `params.axisGuard`, κ_a = 0.15, görsel modla aynı). E32 = `traceRay` varsayılanı (koruma AÇIK, `kappaAxis` 0.15). R64 = DP5(4) (rtol 1e-10, **`rEscape` = GPU ile aynı 300**: algoritma doğruluğu; r_esc=1e4'e göre kesme hatası dahil kaçış yönü ayrıca *bilgi* olarak basılır).
+* **κ_a eşitliği** her kurulumda assert edilir (`guard-assert.mjs`): GPU'ya yüklenen κ_a = CPU `DEFAULT_OPTIONS.kappaAxis` = `AXIS_KAPPA` = 0.15; `{axisGuard:false}` yolunda 0; `params.axisGuard` varsayılanı true.
+* **[PORT-ÜRETİM]** GPU ↔ E32 (koruma açık/açık) ve **[PORT-4a]** GPU `{axisGuard:false}` ↔ E32 `{axisGuard:false}` (4a'nın korumasız birebir portu hâlâ doğru mu): mutlak eşikler — sınıf/vuruş uyuşmazlığı ≤ %0.2; medyan Δr ≤ 2e-5, p99 ≤ 5e-3; medyan ΔgCam ≤ 1e-5, p99 ≤ 2e-4; yön medyan ≤ 1e-5, p99 ≤ 1e-3 rad; adım== ≥ %98. Fark yalnız yuvarlama sırası / sin-cos / bölme gerçeklemesidir.
+* **[NİHAİ]** GPU(üretim) ↔ R64, **E32'den bağımsız mutlak eşikler**: sınıf uyuşmazlığı ≤ **%0.1**; Δr medyan ≤ 2e-4, **p99 ≤ 2e-3**; ΔgCam medyan ≤ 5e-6, **p99 ≤ 1e-4**; kaçış yönü medyan ≤ 1e-4, **p99 ≤ 5e-4 rad**. Gerekçe: denetçinin korumalı yolda ölçtüğü (sınıf 0 / Δr p99 ≤ 7.7e-4 / ΔgCam p99 ≤ 3.2e-5 / yön p99 ≤ 2.3e-4) değerlerin 2–3× marjı; bizim ölçümümüz aynı (tabloda: maks Δr p99 7.7e-4 [D], ΔgCam p99 3.0e-5 [D], yön p99 2.3e-4 [F]). **Kurulum geçersiz kılmaları:** *mobile* (κ=0.10, N=256) yalnız ΔgCam p99 ≤ **3e-4** (ölçülen 1.3e-4; RK4 kesme hatası ∝ κ⁴ ile ΔgCam p99'u ~7× büyütür, E32–R64 aynıdır; Δr p99 1.0e-3 ve diğerleri 2e-3 altında kalır); *r_cam=200 (J)* BİLGİ (f32 koşullanması: Δr p99 1.1e-2, §9) — eşiksiz ama tabloda. *L (θ=179°)*: yalnız [PORT] medyan Δr ≤ 5e-5 (ölçülen 2.4e-5): f32 θ'nın π yakınında ulp'si 2.4e-7, sinθ_cam = 0.017 ⇒ göreli 1.4e-5 hata; GPU ve E32 sinCos'u θ'yı 1 ulp farklı yuvarlayabilir (kuzey kutbunda aynı ölçüt 2.2e-6; bkz. §12 K1).
+* **[UZAMSAL]** GPU–R64 uyuşmazlık haritası: merkez sütun bandında (|i−i_c| ≤ 6) ≥ 2 uyuşmazlık **ya da** herhangi bir 5×5 blokta (Chebyshev ≤ 4) ≥ 2 uyuşmazlık = kümelenme = BAŞARISIZ. Eksen kusuru merkez sütunda onlarca piksellik küme olarak görünür (korumasız: 39–110 piksel), kritik eğrinin rastgele tek-piksel çevirmeleri kümelenmez. Tablo sütunu "bant / kümelenen".
+* Bütçesi biten ışınlar (analitik fate): GPU–E32 uyuşmazlığı ≤ ⌈%2⌉, **GPU–R64 ≤ ⌈%1⌉ (mutlak)**; merkez sütun (L=0) GPU–E32 ve GPU–R64 sınıf uyuşmazlığı 0, yön ≤ 1e-3 rad. `--selftest-noguard` üretim yolunu bilerek korumasız yapar; betik 60+ ihlalle KIRMIZIYA döner (A: 39 uyuşmazlık, [UZAMSAL] küme, κ_a eşitsizliği) — testin Ö1/Ö2 gerilemesini yakaladığının kanıtı.
 
-| Kurulum | GPU–E32 uyuşm. | Δr med / p99 | ΔgCam med / p99 | yön med / p99 | adım== | GPU–R64 uyuşm. (=taban) |
+**Son koşu (`node tests/render/gpu-validate.mjs`, 45 s): `KABUL EŞİKLERİ: GEÇTİ`, tarayıcı konsolu hata/uyarı YOK.** 96×72 (tek-ızgara 97×73), r_out=20, r_esc=300, κ=0.05/N=512 (mobile 0.10/256). Sütunlar: GPU–R64 [NİHAİ]; GPU–E32 [PORT-ÜRETİM] uyuşmazlık · Δr med/p99; koruma KAPALI GPU–R64 uyuşmazlığı (karşılaştırma):
+
+| Kurulum | GPU–R64 uyuşm. | Δr med / p99 | ΔgCam med / p99 | yön med / p99 (rad) | GPU–E32: uyuşm. · Δr med / p99 | bant / küme | koruma KAPALI GPU–R64 uyuşm. |
+|---|---|---|---|---|---|---|---|
+| A a=0.9  θ=75° r=50 | 0/6912 | 1.4e-5 / 4.9e-4 | 3.7e-7 / 2.2e-5 | 4.0e-6 / 3.0e-5 | 0 · 2.8e-6 / 3.6e-4 | 0 / 0 | 39 |
+| B a=0.998 θ=60° r=50 | 0/6912 | 1.1e-5 / 3.4e-4 | 2.6e-7 / 2.1e-5 | 3.9e-6 / 2.7e-5 | 0 · 2.3e-6 / 2.0e-4 | 0 / 0 | 9 |
+| C a=0   θ=85° r=30 | 0/6912 | 1.3e-5 / 5.5e-4 | 2.4e-7 / 9.1e-6 | 2.4e-6 / 4.8e-5 | 0 · 3.8e-6 / 2.9e-4 | 0 / 0 | 44 |
+| D a=0.9  θ=π/2 r=30 (tam θ=π/2) | 0/6912 | 6.5e-5 / 7.7e-4 | 2.1e-6 / 3.0e-5 | 2.4e-6 / 2.3e-5 | 0 · 7.0e-6 / 5.4e-4 | 0 / 0 | 50 |
+| E a=0.9  θ=75° r=50 maxHits=3 | 0/6912 | 1.4e-5 / 4.9e-4 | 3.7e-7 / 2.2e-5 | 5.0e-6 / 2.2e-4 | 0 · 2.8e-6 / 3.6e-4 | 0 / 0 | 39 |
+| F a=0.9  θ=75° r=50 retrograd | 0/6912 | 1.2e-5 / 6.6e-4 | 2.7e-7 / 1.2e-5 | 4.5e-6 / 2.3e-4 | 0 · 3.1e-6 / 4.3e-4 | 0 / 0 | 47 |
+| G a=0.9  θ=75° r=50 tek-ızgara (L=0 merkez sütunu) | 0/7081 | 1.3e-5 / 4.3e-4 | 3.5e-7 / 2.4e-5 | 4.0e-6 / 2.9e-5 | 0 · 2.9e-6 / 3.6e-4 | 0 / 0 | 10 |
+| H a=0.9  θ=10° r=50 tek-ızgara (kutba yakın kamera) | 0/7081 | 1.6e-5 / 1.0e-4 | 2.3e-7 / 9.4e-6 | 3.7e-5 / 1.5e-4 | 0 · 1.9e-6 / 6.4e-5 | 0 / 0 | 2 |
+| I a=0.9  θ=75° r=50 mobile (κ=0.10, N=256) | 0/6912 | 9.0e-5 / 1.0e-3 | 2.5e-6 / 1.3e-4 | 4.1e-5 / 6.0e-5 | 0 · 2.7e-6 / 3.8e-4 | 0 / 0 | 78 |
+| J a=0.9  θ=75° r=200 | 1/6912 | 3.1e-4 / 1.1e-2 | 8.3e-6 / 4.3e-4 | 4.1e-5 / 3.4e-4 | 0 · 5.7e-6 / 7.9e-3 | 0 / 0 | 36 |
+| K a=0.9  θ=1°  r=50 tek-ızgara (kuzey kutbuna 1°) | 0/7081 | 2.7e-5 / 1.2e-4 | 3.6e-7 / 1.2e-5 | 3.8e-5 / 5.8e-5 | 0 · 2.2e-6 / 6.8e-5 | 0 / 0 | 103 |
+| L a=0.998 θ=179° r=40 tek-ızgara (güney kutbuna 1°) | 1/7081 | 2.7e-5 / 2.4e-4 | 3.9e-7 / 2.7e-5 | 3.6e-5 / 9.7e-5 | 0 · 2.4e-5 / 9.7e-5 | 0 / 0 | 110 |
+| M a=0.9  θ=3°  r=15 tek-ızgara (kutba yakın + yakın kamera) | 0/7081 | 5.3e-5 / 3.8e-4 | 1.2e-6 / 8.7e-6 | n/a / n/a | 0 · 1.3e-6 / 1.3e-5 | 0 / 0 | 10 |
+
+[PORT-4a] (korumasız GPU ↔ korumasız E32) tüm kurulumlarda eşiklerin içinde (E'de 1 vuruş sayısı farkı, ≤ %0.2; Δr/ΔgCam/yön değerleri yukarıdakilerle aynı mertebe). Korumasız GPU–R64 uyuşmazlığı (son sütun, tüm kurulumlarda eksen kusuru) §8.2'de ayrıntılı. E32–R64 (bilgi): J ve L'de 1, diğerlerinde 0 uyuşmazlık.
+Ek bulgular: bütçesi biten ışınlarda GPU–E32 ve GPU–R64 sınıf uyuşmazlığı 0 (B: 103/103, L: 92/92 yakalandı = R64); θ=π/2 negatif kontrol (D) çalışıyor (planeGuard kapalı ⇒ GPU çıktısı değişir); L=0 merkez sütunu (G/H/K/L/M, 73 piksel) 0 uyuşmazlık; ikinci vuruş (E) Δr medyan 1.8e-5. Kaçış yönü, R64 r_esc=1e4'e karşı (kesme hatası dahil, bilgi): p99 ≤ 3.4e-4 (H'de 2 pikselde 2.1e-3: (b/r_esc)³ kesme hatası).
+Not (kutuplar): K (θ=1°, kuzey) ve L (θ=179°, güney) iki kutupta da R64'e uyuşur (0 ve 1 piksel); güney kutbunda f32 θ çözünürlüğü kuzeyden 2400× kabadır (ulp(π)=2.4e-7 ↔ ulp(1e-3)=1e-10) — bilinen sınır §12.
+
+### 8.2 Eksen koruması (`tests/render/axis-guard-validate.mjs`: `GEÇTİ`)
+Aynı kurulumlar + **kutba yakın üçü (P1 θ=1°, P2 θ=179°, P3 θ=3°/r=15; denetim Ö2.5)**: GPU `{axisGuard:false}` (4a portu) ↔ GPU `{axisGuard:true}` ↔ R64 (aynı r_esc). Ayrıca seçeneksiz `renderDebug()` çıktısının `{axisGuard:true}` ile **bit-bit aynı** olduğu ve κ_a'nın CPU ile eşit olduğu assert edilir. Sınıf uyuşmazlığı (R64'e göre), bütçesi biten, ortalama adım, kaçış yönü hatası (rad), eksenden uzak Δr medyanı (KAPALI → AÇIK):
+
+| Kurulum | uyuşmazlık (merkez bant) | bütçesi biten | ort. adım | yön p99 | yön maks | eksenden uzak Δr med |
 |---|---|---|---|---|---|---|
-| A a=0.9 θ75° r50 | 0/6912 | 2.8e-6 / 3.9e-4 | 1.2e-7 / 1.7e-5 | 8.2e-7 / 2.1e-5 | %99.99 | 39 (39) |
-| B a=0.998 θ60° r50 | 0 | 2.4e-6 / 2.0e-4 | 1.2e-7 / 1.0e-5 | 6.7e-7 / 1.1e-5 | %100 | 9 (9) |
-| C a=0 θ85° r30 | 0 | 3.9e-6 / 2.9e-4 | 1.1e-7 / 1.0e-5 | 5.1e-7 / 1.2e-5 | %99.91 | 44 (44) |
-| D a=0.9 **θ=π/2** r30 | 0 | 7.6e-6 / 6.0e-4 | 2.5e-7 / 2.2e-5 | 5.3e-7 / 8.7e-6 | %99.97 | 50 (50) |
-| E a=0.9 θ75° maxHits=3 | 1 | 2.8e-6 / 3.9e-4 | 1.2e-7 / 1.7e-5 | 8.4e-7 / 1.5e-4 | %99.68 | 39 (38) |
-| F retrograd | 0 | 3.2e-6 / 4.7e-4 | 1.1e-7 / 9.0e-6 | 8.6e-7 / 1.4e-4 | %99.93 | 47 (47) |
-| G tek-ızgara (L=0 sütunu) | 0 | 2.9e-6 / 3.5e-4 | 1.2e-7 / 1.8e-5 | 7.8e-7 / 2.0e-5 | %100 | 10 (10) |
-| H θ10° tek-ızgara | 0 | 1.8e-6 / 6.7e-5 | 9.6e-8 / 7.6e-6 | 4.7e-7 / 4.3e-6 | %99.99 | 2 (2) |
-| I mobile (κ=.10 N=256) | 0 | 2.8e-6 / 4.4e-4 | 1.2e-7 / 1.8e-5 | 8.6e-7 / 1.9e-5 | %99.97 | 78 (78) |
-| J r200 [bilgi] | 0 | 5.7e-6 / 8.9e-3 | 1.8e-7 / 3.6e-4 | 9.1e-7 / 3.5e-4 | %99.96 | 36 (36) |
+| A a=0.9 θ75° r50 | **39 → 0** (bant 39 → 0) | 0 → 0 | 92.6 → 93.7 (+%1.2) | 3.3e-2 → 3.0e-5 | 7.7e-1 → 6.5e-3 | 1.4e-5 → 1.4e-5 |
+| B a=0.998 θ60° r50 | **9 → 0** (bant 9 → 0) | 103 → 103 | 69.0 → 69.5 (+%0.8) | 3.1e-3 → 2.7e-5 | 9.8e-2 → 3.5e-5 | 1.1e-5 → 1.1e-5 |
+| C a=0 θ85° r30 | **44 → 0** (bant 44 → 0) | 0 → 0 | 103.3 → 104.5 (+%1.1) | 4.6e-2 → 4.8e-5 | 7.3e-1 → 1.4e-4 | 1.2e-5 → 1.2e-5 |
+| F a=0.9 θ75° r50 retrograd | **47 → 0** (bant 47 → 0) | 0 → 0 | 107.3 → 108.3 (+%0.9) | 3.5e-2 → 2.3e-4 | 7.7e-1 → 6.5e-3 | 1.2e-5 → 1.2e-5 |
+| G a=0.9 θ75° r50 tek-ızgara (L=0 sütunu) | **10 → 0** (bant 10 → 0) | 0 → 0 | 92.7 → 93.3 (+%0.7) | 7.0e-2 → 2.9e-5 | 1.0e+0 → 5.4e-4 | 1.3e-5 → 1.3e-5 |
+| H a=0.9 θ10° r50 tek-ızgara | **2 → 0** (bant 2 → 0) | 2 → 0 | 59.4 → 60.2 (+%1.2) | 1.5e-4 → 1.5e-4 | 1.5e-4 → 1.5e-4 | 1.6e-5 → 1.5e-5 |
+| J a=0.9 θ75° r200 | **36 → 1** (bant 35 → 0) | 1 → 1 | 125.4 → 126.5 (+%0.9) | 1.4e-2 → 3.4e-4 | 6.4e-1 → 2.2e-2 | 2.8e-4 → 2.8e-4 |
+| K a=0.9 θ75° r50 ince ızgara 240×180 (merkez şerit) | **229 → 0** (bant 229 → 0) | 0 → 0 | 92.5 → 93.6 (+%1.2) | 3.6e-2 → 3.0e-5 | 3.0e+0 → 9.7e-3 | 1.3e-5 → 1.3e-5 |
+| P1 a=0.9 θ=1° r50 tek-ızgara (kuzey kutbuna 1°) | **103 → 0** (bant 67 → 0) | 85 → 0 | 66.4 → 69.9 (+%5.2) | 2.4e-1 → 5.8e-5 | 2.4e-1 → 5.8e-5 | 2.5e-3 → 2.8e-5 |
+| P2 a=0.998 θ=179° r40 tek-ızgara (güney kutbuna 1°) | **110 → 1** (bant 70 → 0) | 174 → 92 | 62.8 → 68.0 (+%8.2) | 4.6e-3 → 9.7e-5 | 4.6e-3 → 9.7e-5 | 5.7e-3 → 2.7e-5 |
+| P3 a=0.9 θ=3° r15 tek-ızgara (kutba yakın + yakın kamera) | **10 → 0** (bant 10 → 0) | 0 → 0 | 44.4 → 54.0 (+%21.4) | n/a → n/a | n/a → n/a | 5.6e-3 → 6.9e-5 |
 
-Ek bulgular (4a, değişmedi): bütçesi biten ışınlarda GPU–E32 sınıf uyuşmazlığı 0 (B: 103/103 yakalandı = R64); θ=π/2 negatif kontrol (D) çalışıyor; L=0 merkez sütunu (G) 73 pikselde 0 uyuşmazlık;
-ikinci vuruş (E, 396 piksel) Δr medyan 1.8e-5. **Düzeltme (4b):** "GPU–R64 = taban E32–R64" sütunundaki uyuşmazlıkların kaynağı 4a'da "gölge kenarı/teğet ışınlar" diye yorumlanmıştı; §8.2 bunların eksen kusuru olduğunu gösterir.
-
-### 8.2 Eksen koruması (`tests/render/axis-guard-validate.mjs`: `KABUL: GEÇTİ`)
-Aynı kurulumlar, GPU (koruma kapalı = 4a portu) ↔ GPU (açık) ↔ R64 (aynı r_esc). Sınıf uyuşmazlığı (R64'e göre), bütçesi biten, ortalama adım, kaçış yönü hatası (rad):
-
-| Kurulum | uyuşmazlık KAPALI → AÇIK | ort. adım | yön p99 KAPALI → AÇIK | yön maks KAPALI → AÇIK |
-|---|---|---|---|---|
-| A a=0.9 θ75° r50 | **39 → 0** | 92.6 → 93.7 (%1.2) | 3.3e-2 → 3.1e-5 | 0.77 → 6.5e-3 |
-| B a=0.998 θ60° | **9 → 0** | 69.0 → 69.5 | 3.1e-3 → 2.7e-5 | 9.8e-2 → 3.5e-5 |
-| C a=0 θ85° r30 | **44 → 0** | 103.3 → 104.5 | 4.6e-2 → 4.8e-5 | 0.73 → 1.5e-4 |
-| F retrograd | **47 → 0** | 107.3 → 108.3 | 3.5e-2 → 2.3e-4 | 0.77 → 6.5e-3 |
-| G tek-ızgara (L=0) | **10 → 0** | 92.7 → 93.3 | 7.0e-2 → 2.9e-5 | 1.03 → 5.4e-4 |
-| H θ10° | **2 → 0** (bütçesi biten 2 → 0) | 59.4 → 60.2 | 1.5e-4 → 1.5e-4 | aynı |
-| J r200 | **36 → 1** | 125.4 → 126.5 | 1.4e-2 → 3.4e-4 | 0.64 → 2.2e-2 |
-| K 240×180, merkez şerit (|i−i_c|≤12, 4320 px) | **229 → 0** | 92.5 → 93.6 | 3.6e-2 → 3.0e-5 | 3.0 → 9.7e-3 |
-
-Eksenden uzak piksellerde Δr medyanı **bozulmadı** (örn. A: 1.42e-5 → 1.42e-5). Bütçe tükenmesi: 01 kurulumunda (160×120) 48 → 8, mw-bulge 32 → 0, yüzden (10°) 20 → 0. a=0.998'de (B) bütçesi biten 103 ışın aynıdır (başka nedenle; hepsi yakalanır = R64).
+Eksenden uzak piksellerde Δr medyanı bozulmadı (kutba yakın kurulumlarda **düzeldi**: P1 2.5e-3 → 2.8e-5, P2 5.7e-3 → 2.7e-5, P3 5.6e-3 → 6.9e-5 — kutba yakın kamerada ekran ışınlarının çoğu |L| küçüktür, bu yüzden "eksenden uzak" kümesi de kusurdan etkilenmişti).
 Kalan: r_cam=200 + 90° görüş açısında eksenden geçen ışınlarda 1–2.5° (R64 aynı r_esc) hata — f32 koşullanması (§9), koruma çözünürlüğünden değil (κ_a=0.05 aynı sonucu verdi).
 
+**Adım artışı ölçütü (güncellendi, denetim Ö2.5).** Eski ölçüt: ortalama adım artışı ≤ %20. Eksenden uzak kameralarda artış %0.7–1.2'dir (eksenden geçen ışınların oranı küçüktür). Kutba yakın kamerada ekran ışınlarının *çoğu* eksene yakın (|L| küçük) olduğundan koruma birçok ışında etkin olur: P1 +%5.2, P2 +%8.2, **P3 (θ=3°, r=15) +%21.4** (denetçi +%22 ölçmüştü). Bu artış korumasız yolun *yanlış* sonucu karşılığıdır (P3'te R64'e aykırı 10, P1'de 103, P2'de 110 piksel, bütçesi biten P2'de 174 → 92). Ölçüt: kamera kutuptan ≥ 5° uzakken **≤ %20**; kutba ≤ 5° yakın kurulumlarda (`polar`) **≤ %30** (ölçülen maks %21.4 + ≈%40 marj). Süre: SwiftShader'da koruma KAPALI/AÇIK ms oranı 0.97–1.16 (A, P3, P1; ölçüm gürültüsü ±%15–30 ile ayırt edilemez).
+
 ### 8.3 Disk fotometrisi (`tests/render/photometry-validate.mjs`: `GEÇTİ`)
-GPU `renderDebugPhoto` (96×72, türbülans/kenar kapalı) ↔ CPU: `src/physics/disk.js` (`diskTemperatureProfile`, `blackbodyToLinearSRGB` integrali, tablo/LUT/seri örnekleyicileri) ve E32 `traceRay` (`hit.r`, `hit.gCam`). Göreli hata yalnız I ≥ 1e-3 piksellerde.
-**[PORT]** = GPU ↔ CPU(f64, *aynı formül*, GPU'nun kendi r, g_cam'ı ile) — yalnız f32/cihaz aritmetiği; eşik medyan ≤ 1e-5, p99 ≤ 2e-4. **[TABLO]** = CPU(tablo+LUT) ↔ CPU(tam integral) — enterpolasyon/seri/Wien yaklaşıklığı (eşik medyan ≤ 2e-3). **[U-U]** = GPU ↔ CPU(tam), r ve g_cam CPU E32 izinden — uçtan uca.
+GPU `renderDebugPhoto` (96×72, türbülans/kenar kapalı, **üretim yolu: seçeneksiz ⇒ eksen koruması AÇIK**; κ_a eşitliği assert edilir) ↔ CPU: `src/physics/disk.js` (`diskTemperatureProfile`, `blackbodyToLinearSRGB` integrali, tablo/LUT/seri örnekleyicileri) ve E32 `traceRay` (`hit.r`, `hit.gCam`; koruma varsayılan AÇIK). Göreli hata yalnız I ≥ 1e-3 piksellerde.
+**Düzeltme (denetim Ö2.6):** önceki sürüm GPU'yu korumasız çalıştırıp CPU E32 korumalıyken karşılaştırıyordu ve [U-U] katmanı fark edilmeden bozulmuştu (S1: T_obs p99 3.9e-3, I p99 2e-2) çünkü [U-U] için eşik yoktu. Artık korumalı yol kullanılıyor ve [U-U] **p99 eşikleri** var: **T_obs ≤ 2e-4, I ≤ 1e-3** (ölçülen maks p99: 6.8e-5 / 3.6e-4).
+**[PORT]** = GPU ↔ CPU(f64, *aynı formül*, GPU'nun kendi r, g_cam'ı ile) — yalnız f32/cihaz aritmetiği; eşik medyan ≤ 1e-5, p99 ≤ 2e-4. **[TABLO]** = CPU(tablo+LUT) ↔ CPU(tam integral) — enterpolasyon/seri/Wien yaklaşıklığı (eşik medyan ≤ 2e-3). **[U-U]** = GPU ↔ CPU(tam), r ve g_cam CPU E32 izinden — uçtan uca. **[K2]** = *bağımsız* mod B anlamı: `I = f_col⁻⁴·Y(T_obs)/Y(T_max)` (GPU'nun T_obs'u + physics/disk.js tam Planck integrali; eşik medyan ≤ 2e-3, p99 ≤ 1e-2) — Y_ref = Y(T_max) kararının (K2) GPU'da uygulandığını gösterir; S8'de (f_col=1.7) g=1,τ=1 tepe ≈ 0.416.
 
-| Kurulum (n disk pikseli) | [PORT] T_obs med/p99 | [PORT] I med/p99 | [PORT] RGB med/p99 | [TABLO] I med/maks | [U-U] T_obs med/p99 | [U-U] I med/p99 |
-|---|---|---|---|---|---|---|
-| S1 a=0.9 θ75° Tmax=1e4 f=1, **B** (3421) | 3.8e-8 / 1.4e-7 | 1.9e-6 / 6.1e-6 | 1.9e-6 / 5.5e-6 | 1.3e-4 / 1.2e-3 | 3.6e-6 / 4.8e-5 | 1.3e-4 / 3.8e-4 |
-| S2 aynı, **A (bolometrik)** | 3.8e-8 / 1.4e-7 | 1.3e-7 / 5.2e-7 | 4.1e-7 / 9.7e-7 | 1.4e-5 / 5.7e-4 | 3.6e-6 / 5.2e-5 | 1.4e-5 / 2.1e-4 |
-| S3 Tmax=1e6 (**T_obs>1e5 K: seri**, 3416 piksel) | 3.7e-8 / 1.4e-7 | 5.8e-7 / 1.7e-6 | 5.7e-7 / 1.7e-6 | 5.7e-6 / 1.6e-4 | 3.6e-6 / 6.4e-5 | 6.3e-6 / 7.5e-5 |
-| S4 a=0 θ85° Tmax=2000 (**T_obs<1e3 K: Wien**, 63 piksel) | 2.9e-8 / 1.1e-7 | 5.4e-6 / 1.6e-5 | 5.1e-6 / 1.5e-5 | 4.2e-4 / 1.1e-3 | 7.2e-7 / 2.3e-5 | 4.2e-4 / 8.4e-4 |
-| S5 a=0.998 θ60° Tmax=1e5 f=1.7 (137 piksel >1e5 K) | 5.0e-8 / 1.8e-7 | 6.2e-7 / 2.0e-6 | 6.3e-7 / 2.1e-6 | 5.5e-6 / 1.9e-3 | 5.4e-6 / 2.9e-5 | 5.8e-6 / 4.3e-5 |
-| S6 retrograd Tmax=3e4 f=1.7, A | 4.5e-8 / 7.4e-7 | 1.1e-7 / 2.8e-6 | 1.3e-7 / 3.1e-6 | 8.9e-6 / 8.1e-5 | 2.2e-6 / 8.5e-5 | 8.9e-6 / 3.4e-4 |
-| S7 a=0.5 θ60° r20 Tmax=8e3 f=1.3 | 4.5e-8 / 1.8e-7 | 1.4e-6 / 3.9e-6 | 1.6e-6 / 4.5e-6 | 8.6e-5 / 7.1e-4 | 8.7e-7 / 3.6e-5 | 8.5e-5 / 3.0e-4 |
+| Kurulum (n disk pikseli) | [PORT] T_obs med/p99 | [PORT] I med/p99 | [PORT] RGB med/p99 | [TABLO] I med/maks | [U-U] T_obs med/p99 | [U-U] I med/p99 | [K2] med/p99 |
+|---|---|---|---|---|---|---|---|
+| S1 a=0.9 θ75° Tmax=1e4 f=1, **B** (3384) | 3.8e-8 / 1.4e-7 | 1.9e-6 / 6.1e-6 | 1.9e-6 / 5.5e-6 | 1.3e-4 / 1.2e-3 | 3.6e-6 / 4.7e-5 | 1.3e-4 / 3.6e-4 | 1.4e-4 / 2.9e-4 |
+| S2 aynı, **A (bolometrik)** (3384) | 3.8e-8 / 1.4e-7 | 1.3e-7 / 5.2e-7 | 4.0e-7 / 9.7e-7 | 1.4e-5 / 5.7e-4 | 3.6e-6 / 5.4e-5 | 1.4e-5 / 2.2e-4 | – |
+| S3 Tmax=1e6 (**T_obs>1e5 K: seri**) (3384) | 3.7e-8 / 1.4e-7 | 5.8e-7 / 1.7e-6 | 5.8e-7 / 1.7e-6 | 5.6e-6 / 1.6e-4 | 3.6e-6 / 6.8e-5 | 6.3e-6 / 8.0e-5 | 9.3e-6 / 1.0e-5 |
+| S4 a=0 θ85° Tmax=2000 (**T_obs<1e3 K: Wien**, 61 piksel) (1982) | 2.9e-8 / 1.0e-7 | 5.4e-6 / 1.6e-5 | 5.1e-6 / 1.5e-5 | 4.2e-4 / 1.1e-3 | 7.0e-7 / 2.3e-5 | 4.2e-4 / 8.1e-4 | 3.9e-4 / 6.7e-4 |
+| S5 a=0.998 θ60° Tmax=1e5 f=1.7 (137 piksel >1e5 K) (5570) | 4.9e-8 / 1.8e-7 | 1.5e-6 / 3.4e-6 | 1.6e-6 / 3.5e-6 | 5.5e-6 / 1.9e-3 | 5.4e-6 / 2.9e-5 | 5.5e-6 / 4.1e-5 | 8.3e-6 / 2.1e-5 |
+| S6 retrograd Tmax=3e4 f=1.7, A (2636) | 4.5e-8 / 7.0e-7 | 1.1e-7 / 2.6e-6 | 1.3e-7 / 3.0e-6 | 8.9e-6 / 8.1e-5 | 2.2e-6 / 5.3e-5 | 8.7e-6 / 2.1e-4 | – |
+| S7 a=0.5 θ60° r20 Tmax=8e3 f=1.3 (5034) | 4.5e-8 / 1.9e-7 | 1.5e-6 / 3.9e-6 | 1.7e-6 / 4.5e-6 | 8.6e-5 / 7.1e-4 | 8.6e-7 / 3.6e-5 | 8.5e-5 / 3.0e-4 | 8.0e-5 / 1.7e-4 |
+| S8 a=0.9 θ75° Tmax=1e4 **f=1.7** (K2) (3384) | 4.4e-8 / 1.7e-7 | 1.3e-6 / 3.8e-6 | 1.6e-6 / 4.5e-6 | 7.4e-5 / 9.9e-4 | 3.6e-6 / 5.2e-5 | 7.3e-5 / 2.7e-4 | 7.9e-5 / 1.7e-4 |
 
-[PORT] mutlak eşiklerin (1e-5 / 2e-4) **~5–1000×** altında; [TABLO] hataları `disk.md §5.4`'teki LUT hatasıyla (log₁₀Y ≤ 3.7e-4 ⇒ ≈ %0.09) uyumlu (I medyan 1e-4 mertebesi, maks 1.9e-3). [U-U] maksimumlar (örn. S6: T_obs maks 0.135) disk kenarında GPU/E32 ışınının farklı yarıçapa düştüğü tek tük piksellerdir (p99 ≤ 8.5e-5).
+[PORT] mutlak eşiklerin (1e-5 / 2e-4) **~5–1000×** altında; [TABLO] hataları `disk.md §5.4`'teki LUT hatasıyla (log₁₀Y ≤ 3.7e-4 ⇒ ≈ %0.09) uyumlu (I medyan 1e-4 mertebesi, maks 1.9e-3). [U-U] maksimumlar (T_obs ≤ 2e-3, I ≤ 1.2e-2) disk kenarında GPU/E32 ışınının farklı yarıçapa düştüğü tek tük piksellerdir (p99 ≤ eşiklerin 3–5× altında).
 ESTETİK sağlık denetimi: kenar yumuşatma GPU ↔ CPU smoothstep maks |Δ| 1.6e-7; türbülans çarpanı (amp 0.3, 384×288 ızgara, 54 260 piksel) ortalama 1.013, σ 0.214, aralık 0.52–1.88.
 (Kaba 96×72 ızgarada türbülans çarpanı ≡ 1: piksel ayak izi (0.77 M) hücreden (1 M) büyük ⇒ ayak izi süzmesi tüm oktavları **doğru olarak** söndürür.)
 
 ### 8.4 Hat davranışı (`tests/render/pipeline-check.mjs`: `HAT TESTİ: GEÇTİ`)
-T1 `exposure` değişimi **0** yeni iz sürme karesi (post çalışır, tuval ×0.48), `Tmax` değişimi iz sürme çalıştırır · T2 parametre değişince iz sürme genişliği 80 (=0.5×160), durunca ≈152 ms sonra 160 ve 3/3 kare biriktirilir ·
+T1 `exposure` değişimi **0** yeni iz sürme karesi (post çalışır, tuval ×0.50), `Tmax` değişimi iz sürme çalıştırır · T2 parametre değişince iz sürme genişliği 80 (=0.5×160), durunca ≈152 ms sonra 160 ve 3/3 kare biriktirilir ·
 T3 `animationFps=4` ⇒ 2 s'de 10 kare (60 ⇒ 35), kare süresi hedefi tutmayınca `dynamicScale` 1 → 0.35 · **T4 bloom kapalı + tonemap none: 10 029 disk pikselinde |tuval − sRGB(0.5·radyans)| maks 1.45/255, ort 0.40** (fiziksel/estetik ayrımı) ·
-T5 8 kare ↔ 1 kare parlaklık ×1.0028, iki aynı koşu bit-bit aynı (deterministik yıldız/biriktirme) · T6 8-bit yedek hedef çalışır (ort 4.15, maks 18/255 sapma; yalnız acil yedek) · T7 `stop()` sonrası 0 kare · konsol temiz.
-`api-smoke`: tüm kontroller geçti (4b varsayılanları, kıstırma, geçersiz değerler, çözünürlük ölçeği 80×60 iz sürme / 160×120 tuval). `npm run build`: dist 604.7 kB (160 kB gzip; 4a: 563/145).
+T5 8 kare ↔ 1 kare parlaklık ×1.0085, iki aynı koşu bit-bit aynı (deterministik yıldız/biriktirme) · T6 8-bit yedek hedef çalışır (ort 4.09, maks 18/255 sapma; yalnız acil yedek) · T7 `stop()` sonrası 0 kare · konsol temiz.
+`api-smoke`: tüm kontroller geçti (4b varsayılanları, kıstırma, geçersiz değerler, çözünürlük ölçeği 80×60 iz sürme / 160×120 tuval; yörünge kontrolü **ayrı tuvalde `{controls:true}` ile ikinci bir renderer'la** sınanır — uygulamanın renderer'ı artık `controls:false`, eski test varsayımı 1b7c0de'den beri kırıktı). `npm run build`: dist 646.5 kB (175.8 kB gzip; arayüz katmanı dahil).
 
 ## 9. Performans (SwiftShader — gerçek GPU'yu TEMSİL ETMEZ)
 
@@ -288,7 +304,7 @@ bloom + kompozit ≲ %10. Bileşen tablosu (`perf.mjs` bölüm 2): tam varsayıl
 2. **Başlangıç p_r f32'de** Carter bağıntısından; **kamera sabitleri** f64'te hesaplanıp f32 uniform; `roll` desteklenmez.
 3. **Hermite kesişimi:** CPU 60, GPU 24 ikiye bölme. **`g`:** r^{3/4} = √r·√√r; tanımsız ⇒ `g = 0`.
 4. **`hasTurningPointBelow`/`cbrt`/`acos` f32'de.** `rEscape` varsayılanı 4b'de `max(300, 2 r_cam, 6 b_max)` (CPU: max(1e4, 2 r_cam)); NaN ⇒ yakalandı. `t` integre edilmez.
-5. **4b — eksen koruması (§2.1): görsel modda CPU E32'den KASITLI sapma** (CPU referansı hatalıdır). Debug yolunda varsayılan kapalı (birebir port).
+5. **4b — eksen koruması (§2.1): görsel modda CPU E32'den KASITLI sapma** (CPU referansı hatalıdır). Debug yollarında varsayılan = görsel modla aynı (açık); korumasız 4a portu yalnız açık `{axisGuard:false}` ile (`gpu-validate` [PORT-4a]).
 6. **4b — ISCO altı:** `diskIn` ISCO'dan küçük kıstırılır (önceden ESTETİK ekstrapolasyondu).
 7. **4b — ESTETİK yaklaşıklar:** disk fotonlarının varış gecikmesi (ışık yolu süresi) türbülans animasyonunda yok; disk iki yüzü aynı ışır; limb darkening yok.
 8. Sınırlar: a ≤ 0.998, θ_cam ∈ [1e-3, π−1e-3], r_cam ∈ [r₊+0.25, 1000].
@@ -309,15 +325,17 @@ Gözle onaylananlar: yaklaşan (mavi-beyaz, parlak) taraf solda, uzaklaşan (tur
 * **Gerçek GPU'da ölçüm yok.** Doğruluk SwiftShader'da (gerçek f32), performans yalnız göreli. Windows/ANGLE-D3D'de uzun (N=512) döngü zaman aşımı riski ölçülmedi. Uyarlamalı çözünürlük GPU süresini değil rAF aralığını izler.
 * **Matematik ekibine:** `src/math` f32-RK4 `traceRay`'in eksen yakını sıçramayı çözemediği (§2.1) 4a'dan beri bilinmiyordu; `math/README §7` taban uyuşmazlıkları (%0.5/%1.4) ve p99/maks Δr ("gölge kenarı") büyük ölçüde buradan geliyor. Öneri: `naturalStep`'e `L ≠ 0` iken göreli-θ ve bariyer zaman-ölçeği sınırı (trace.glsl'deki gibi) ekleyip `bench64/float32` tablolarını yenilemek. GPU–E32 doğrulaması bu hatayı gizledi (ikisi aynı hatayı yapıyor) — E32'ye karşı değil R64'e karşı sınama şart.
 * **Matematik ekibine (2):** kaçış yönü kesme hatası ≈ (b/r_esc)³ ve r_cam ≳ 150 + fov ≳ 60°'de f32 koşullanması (b² belirsizliği ≈ 2r²ε) yıldız konumunda ~1° hata verebilir; kalıcı çözüm p_r'yi R(r)'den cebirsel kurmak (math §9).
-* **Fizik ekibine:** (1) Mod B `f_col⁻⁴` çarpanı (görev gereği) f_col=1.7'de diski ×0.12 karartır; tepe normalizasyonu `Y_ref = Y(f_col T_max)` bu istenen anlam mı, yoksa Y_ref f_col'dan bağımsız mı olmalı? (2) T < 1e3 K Wien sabiti (2.3e4 K, ±%30) — LUT'u 300 K'ye uzatıp sabiti kaldırmak ister misiniz (görüntüde etkisiz: I < 1e-3)? (3) ISCO altı (plunging) ışıma ve geri dönen ışınım yok; yüksek spinde (a ≳ 0.9) disk iç kısmında önemli olabilir (disk.md §8.3). (4) T>1e5 K'de kromatisite 1e5 K'de donuk (≲ %3 hata; disk.md §5.4) — görüntüde Tmax=1e6'da mavi plato. (5) Opak disk iki yüzünü de aynı ışıtıyor; limb darkening/polarizasyon yok.
-* **Estetik uyarılar:** animasyon modunda biriktirme yok ⇒ gölge/disk kenarı anti-alias'sız; dar görüş açısı + 8-bit yedek hedefte düşük kalite; `fCol ≠ 1` ve `Tmax` değişimi disk parlaklığını normalize eder (mod B tepe Y_ref=1): mutlak parlaklığı `exposure` belirler.
+* **Fizik ekibine:** (1) *[KARARLANDI, K2]* Mod B artık `Y_ref = Y(T_max)` (f_col'dan bağımsız): fiziksel parlaklık f_col⁻⁴·Y(f_col T)/Y(T_max) olarak değişir. `docs/physics/disk.md:143` hâlâ `Y_ref = Y(f_col T_max)` yazıyor — güncellenmesi gerekir (bu ajanın dosyası değil). (2) T < 1e3 K Wien sabiti (2.3e4 K, ±%30) — LUT'u 300 K'ye uzatıp sabiti kaldırmak ister misiniz (görüntüde etkisiz: I < 1e-3)? (3) ISCO altı (plunging) ışıma ve geri dönen ışınım yok; yüksek spinde (a ≳ 0.9) disk iç kısmında önemli olabilir (disk.md §8.3). (4) T>1e5 K'de kromatisite 1e5 K'de donuk (≲ %3 hata; disk.md §5.4) — görüntüde Tmax=1e6'da mavi plato. (5) Opak disk iki yüzünü de aynı ışıtıyor; limb darkening/polarizasyon yok.
+* **Estetik uyarılar:** animasyon modunda biriktirme yok ⇒ gölge/disk kenarı anti-alias'sız; dar görüş açısı + 8-bit yedek hedefte düşük kalite; mod B'de `Tmax` değişimi disk parlaklığını Y(T_obs)/Y(T_max) oranıyla normalize eder (T_max'ın kendisi mutlak ölçeği belirlemez), `fCol` ise fiziksel parlaklığı değiştirir (K2); mutlak gösterim parlaklığını `exposure` belirler.
+* **K1 — güney kutbu f32 sınırı (bilinen sınır, düzeltilmedi):** f32'de θ ≈ π yakınında θ çözünürlüğü ulp(π)=2.4e-7'dir (θ ≈ 0'da ulp(1e-3)=1e-10); bu yüzden güney kutbuna ≲ 1° yakın kamerada ya da çok küçük |L| ≠ 0 (π − θ_min ≲ 1e-5) ışınlarda L²cosθ/sin³θ bariyeri bozulabilir. Çare (θ>π/2'de durumu (π−θ, −p_θ) yansıtılmış yarıkürede tutmak) ışının ekvatoru geçtiği her yerde yeniden yansıtmayı, kesişim/açı çıktılarında dönüşümü ve `src/math` E32 ile **bit düzeyi birebirliğin kaybını** gerektirdiğinden YAPILMADI. Ölçüm: L kurulumu (a=0.998, θ=179°, merkez sütun L=0 dahil) R64'e göre 1/7081 uyuşmazlık, Δr p99 2.4e-4, yön p99 9.7e-5 — pratikte gözlenebilir bir sorun yok; yalnız GPU–E32 medyan Δr 2.4e-5 (kuzeyde 2.2e-6) yuvarlama farkı var. Merkez sütun tam L=0'dır (|L|<1e-7 ⇒ 0 dalı); 1e-7 < |L| < 1e-5 bandına ancak güney kutbuna ≲ 1e-3 rad yakın kamerada ve aşırı yüksek çözünürlükte (x adımı ≲ 2e-4) ulaşılır.
+* **Yıldız yayları (Ö3):** nokta kaynak modeli uygulandı (§7.2); merceklenmiş yıldızlar artık yay değil noktadır. Kritik eğriye çok yakın piksellerde dFdx/dFdy 2×2 dörtlük kabalığı ve `STAR_MU_CAP` (ESTETİK) tavanı geçerlidir. Sonlu çaplı kaynak (Güneş benzeri yakın yıldız) modellenmedi.
 * 8-bit yedek HDR hedefi (float renderable yoksa): radyans/8, bloom yok, ort. sapma 4/255 (yalnız acil yedek; gerçek cihazda sınanmadı).
 * `analyticFate=false` GPU'da ayrıca doğrulanmadı. `roll` yok. `three` tamamı paketlenir (604 kB).
 
 ## 13. Testleri çalıştırma
 
 ```
-node tests/render/gpu-validate.mjs [--grid=96x72] [--quick] [--json=cikti.json]   # CPU↔GPU çekirdek (debug yolu, koruma kapalı); eşik sağlanmazsa çıkış kodu 1
+node tests/render/gpu-validate.mjs [--grid=96x72] [--quick] [--json=cikti.json] [--selftest-noguard]   # CPU↔GPU çekirdek (üretim yolu + R64 mutlak eşikler + uzamsal küme); eşik sağlanmazsa çıkış kodu 1; --selftest-noguard: bilerek kırmızı
 node tests/render/photometry-validate.mjs [--grid=96x72] [--json=cikti.json]      # T_obs/parlaklık/RGB: GPU ↔ disk.js + traceRay gCam
 node tests/render/axis-guard-validate.mjs [--grid=96x72]                          # eksen koruması ↔ R64
 node tests/render/pipeline-check.mjs                                               # biriktirme, etkileşim, animasyon, dinamik ölçek, fiziksel/estetik ayrımı, 8-bit yedek

@@ -49,16 +49,23 @@ try {
     await new Promise((res) => setTimeout(res, 300));
     o.framesAfterStop = r.getStats().frames - f1;
 
-    // yörünge kontrolü (sürükleme + tekerlek)
-    const cv = document.getElementById('sahne');
-    const before = r.getParams();
+    // yörünge kontrolü (sürükleme + tekerlek). Uygulamanın kendi renderer'ı artık {controls:false} (kontrolü arayüz katmanı yönetir),
+    // bu yüzden geçici kontrol AYRI bir tuvalde, {controls:true} ile oluşturulan ikinci bir renderer'la sınanır (test varsayımı güncellendi).
+    const mod = await import('/src/render/index.js');
+    const cv = document.createElement('canvas');
+    cv.width = 160; cv.height = 120;
+    document.body.appendChild(cv);
+    const rc = mod.createBlackHoleRenderer(cv, { controls: true });
+    const before = rc.getParams();
     const ev = (type, x, y, extra = {}) => cv.dispatchEvent(new PointerEvent(type, { pointerId: 1, clientX: x, clientY: y, bubbles: true, ...extra }));
     ev('pointerdown', 50, 50); ev('pointermove', 90, 70); ev('pointerup', 90, 70);
-    const after = r.getParams();
+    const after = rc.getParams();
     o.drag = { dphi: after.phiCam - before.phiCam, dtheta: after.thetaCam - before.thetaCam };
     const r0 = after.rCam;
     cv.dispatchEvent(new WheelEvent('wheel', { deltaY: 200, bubbles: true, cancelable: true }));
-    o.wheel = r.getParams().rCam / r0;
+    o.wheel = rc.getParams().rCam / r0;
+    rc.dispose();
+    cv.remove();
 
     // debug çıktı düzeni
     r.setParams({ a: 0, thetaCam: 1.5, rCam: 30, fovY: 40, quality: 'high', phiCam: 0, diskOut: 20, resolutionScale: 1, rEscape: 'auto' });

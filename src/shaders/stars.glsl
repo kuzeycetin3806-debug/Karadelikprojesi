@@ -9,13 +9,22 @@
 //   q = R·d'nin hücresi ve 26 komşusu taranır (27 hash) ⇒ Gauss kuyrukları hiçbir hücre/yüz sınırında kesilmez, kutup/küp dikişi yoktur.
 //   İki katman: parlak/seyrek (R=45) ve sönük/yoğun (R=130). Gökte düzgün yoğunluk: kabuk hücre sayısı ≈ 4πR².
 //
+// YILDIZ GÖRÜNTÜSÜ = NOKTA KAYNAK (denetim Ö3). Yıldızlar sonsuz küçük nokta kaynaklardır; görüntü düzleminde (ekran) PSF boyutunda
+//   KALIR (σ_s = 0.65 tuval pikseli, Gauss) ve toplam akısı merceklenme büyütmesi μ ile ölçeklenir (Liouville: yüzey parlaklığı korunur,
+//   nokta kaynağın akısı μ ile değişir). Uygulama: yerel gökyüzü Jakobiyeni J = [dFdx(d), dFdy(d)] (gök yönü / piksel); bir yıldıza
+//   göre ekran ofseti δ = J⁺(d − d_yıldız) (piksel), PSF = exp(−|δ|²/2σ_eff²); μ = Ω_nominal / |dFdx(d) × dFdy(d)| (Ω_nominal =
+//   merceksiz piksel katı açısı, perspektif cos³ düzeltmeli). Genlik = F · min(μ, MU_CAP) · σ_s²/σ_eff² (σ_eff² = σ_s² + ¼ piksel² ayak izi).
+//   ⇒ merceklenmiş yıldız YAY OLARAK UZAMAZ; noktadır ve μ kadar parlaklaşır (Einstein halkası yakınında μ büyür) ya da sönükleşir (μ<1).
+//   Yay görünümü gerçek bir yıldızın (sonlu açısal çaplı) ya da yaygın ışığın (Samanyolu) özelliğidir, nokta kaynağın değil.
+//
 // FİZİKSEL : yön eşlemesi (merceklenme), yıldız renk sıcaklığı → kara cisim kromatisitesi (blackbodyLUT, 3000–30000 K),
 //            yerçekimi/Doppler kayması T_obs = ν_cam/ν_∞ · T_star ve band-luminans oranı 10^(logY(T_obs) − logY(T)) (Liouville),
-//            yüzey parlaklığının korunması (yıldız = gökte σ_s yarıçaplı Gauss disk: büyütme/küçültme parlaklığı değil boyutu değiştirir).
-// ESTETİK  : parlaklık dağılımı (kesik Pareto), yıldız sayısı/PSF boyu, Samanyolu bandı (şekil, renk, toz şeritleri, yıldız artışı).
+//            nokta kaynak büyütmesi μ (akı ∝ μ) ve görüntü düzleminde PSF boyutunda kalma (yerel Jakobiyenden, piksel farkıyla).
+// ESTETİK  : parlaklık dağılımı (kesik Pareto), yıldız sayısı/PSF boyu (σ_s), büyütme TAVANI STAR_MU_CAP (gerçekte μ→∞ kritik eğride),
+//            Samanyolu bandı (şekil, renk, toz şeritleri, yıldız artışı), kaba ızgarada ¼ piksel² ayak izi süzmesi (örtüşme önleme).
 //
-// Ayak izi: piksel başına dFdx/dFdy(d) ⇒ σ_eff² = σ_s² + σ_fp² (σ_fp = ayak izi/2); genlik · σ_s²/σ_eff² (enerji korunur):
-//   küçülen (minified) bölgelerde yıldız kaybolmaz, büyüyüp sönükleşir; büyütülen bölgelerde yay olarak uzar.
+// Ayak izi: yön türevi komşu piksellerden (dFdx/dFdy; 2×2 dörtlüde sabit) hesaplanır; σ_eff² = σ_s² + ¼ ⇒ küçülen (minified)
+//   bölgelerde yıldız kaybolmaz, enerji korunur (genlik · σ_s²/σ_eff²).
 // ============================================================================
 
 // Galaktik düzlem normali ve "galaktik merkez" yönü (rastgele ama sabit; diskin düzlemine paralel değil)
@@ -28,12 +37,53 @@ vec3 sphToCart(float th, float ph) {
   return vec3(s.x * p.y, s.x * p.x, s.y);
 }
 
-// Tek yıldız katmanı (3B kafes kabuğu). d: gökyüzü yönü, R: kabuk yarıçapı (hücre birimi), sigS2: PSF σ², sigFp2: ayak izi σ²
+// ESTETİK tavan: büyütme genliğinin üst sınırı (gerçek μ kritik eğride sonsuza gider; tek bir yıldız ekranı doyurmasın)
+const float STAR_MU_CAP = 24.0;
+
+// Piksel başına yerel gökyüzü haritası (tek-biçimli akışta, dFdx/dFdy ile kurulur — shading.glsl)
+struct SkyMap {
+  vec3  p0;       // ekran ofseti δx = dot(p0, d − d_yıldız)  [iz sürme pikseli]
+  vec3  p1;       // ekran ofseti δy = dot(p1, d − d_yıldız)
+  float mu;       // merceksiz piksel katı açısı / yerel piksel katı açısı (tavanlı); 1 = merceksiz
+  float sigPx2;   // PSF σ_s² (piksel²)
+  float reject2;  // gökte kabul yarıçapı² (üstü Gauss katkısı < e⁻⁹)
+};
+
+// ddx, ddy: gök yönünün piksel başına değişimi; valid=false ⇒ komşu geçersiz ⇒ merceksiz (nominal) harita.
+// fpNom: nominal piksel açısı (rad), persp: (1+x²+y²)^(-3/2) (kamera ekseninden uzak pikselin merceksiz katı açısı çarpanı)
+SkyMap makeSkyMap(vec3 dir, vec3 ddx, vec3 ddy, bool valid, float fpNom, float persp) {
+  SkyMap m;
+  float sg = uStarSigma / fpNom;                       // PSF σ_s, iz sürme pikseli cinsinden (tuval/iz sürme oranı dahil)
+  m.sigPx2 = sg * sg;
+  float sigEff2 = m.sigPx2 + 0.25;
+  if (valid) {
+    float e = (0.02 * fpNom) * (0.02 * fpNom);         // düzenleme: ddx ≈ 0 ya da ddx ∥ ddy durumunda det → 0 olmasın
+    float a = dot(ddx, ddx) + e;
+    float c = dot(ddy, ddy) + e;
+    float b = dot(ddx, ddy);
+    float det = max(a * c - b * b, 1e-30);
+    m.p0 = (c * ddx - b * ddy) / det;                  // δ = G⁻¹ Jᵀ dd
+    m.p1 = (a * ddy - b * ddx) / det;
+    m.mu = min(fpNom * fpNom * persp / sqrt(det), STAR_MU_CAP);
+    m.reject2 = 18.0 * sigEff2 * (a + c);              // λ_max ≤ iz
+  } else {
+    // dik, birim teğet tabanı: δ = dd / fpNom
+    vec3 t0 = normalize(cross(dir, abs(dir.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 t1 = cross(dir, t0);
+    m.p0 = t0 / fpNom;
+    m.p1 = t1 / fpNom;
+    m.mu = 1.0;
+    m.reject2 = 18.0 * sigEff2 * fpNom * fpNom;
+  }
+  return m;
+}
+
+// Tek yıldız katmanı (3B kafes kabuğu). d: gökyüzü yönü, R: kabuk yarıçapı (hücre birimi)
 vec3 starLayer(vec3 d, float R, float p0, float fMin, float fMax, float alpha, uint salt,
-               float band, float bandBoost, float sigS2, float sigFp2, float nuCam) {
+               float band, float bandBoost, SkyMap sm, float nuCam) {
   ivec3 c0 = ivec3(floor(d * R));
-  float sigEff2 = sigS2 + sigFp2;
-  float reject = 18.0 * sigEff2;                       // 3σ·√2 ötesi: katkı < e⁻⁹
+  float sigEff2 = sm.sigPx2 + 0.25;                    // PSF σ² + ¼ piksel² ayak izi (piksel²)
+  float ampN = sm.sigPx2 / sigEff2;                    // enerji korunumu (ayak izi süzmesi)
   float pEff = p0 * (1.0 + bandBoost * band);
   vec3 col = vec3(0.0);
   for (int dz = -1; dz <= 1; dz++) {
@@ -50,7 +100,8 @@ vec3 starLayer(vec3 d, float R, float p0, float fMin, float fMax, float alpha, u
         vec3 ds = normalize(vec3(c) + vec3(rx, ry, rz));
         vec3 dd = d - ds;
         float d2 = dot(dd, dd);
-        if (d2 > reject) continue;
+        if (d2 > sm.reject2) continue;
+        vec2 dl = vec2(dot(sm.p0, dd), dot(sm.p1, dd)); // ekran ofseti (piksel)
         h = pcg(h); float rb = u01(h);      // parlaklık: kesik Pareto  F = fMin (1 − u (1 − q))^{−1/α},  q = (fMin/fMax)^α
         h = pcg(h); float rt = u01(h);      // sıcaklık
         float q = pow(fMin / fMax, alpha);
@@ -59,7 +110,7 @@ vec3 starLayer(vec3 d, float R, float p0, float fMin, float fMax, float alpha, u
         vec4 b0 = blackbodyLookup(T);
         vec4 b1 = blackbodyLookup(T * nuCam);          // FİZİKSEL: yerçekimi/Doppler kayması
         float shift = exp2((b1.a - b0.a) * LOG2_10);   // band-luminans oranı Y(gT)/Y(T)
-        float amp = F * (sigS2 / sigEff2) * exp(-0.5 * d2 / sigEff2) * shift;
+        float amp = F * sm.mu * ampN * exp(-0.5 * dot(dl, dl) / sigEff2) * shift;   // nokta kaynak: akı ∝ μ, PSF görüntü düzleminde
         col += b1.rgb * amp;
       }
     }
@@ -102,16 +153,14 @@ vec3 milkyWayDiffuse(vec3 d, float band, float fp2, float nuCam) {
 }
 
 // Tüm gökyüzü ışıması (yön biliniyorsa)
-vec3 skyRadiance(vec3 d, float nuCam, float fp2) {
+vec3 skyRadiance(vec3 d, float nuCam, float fp2, SkyMap sm) {
   vec3 col = vec3(0.0);
   float band = milkyWayBand(d);
   if (uMilkyWay > 0.0) col += uMilkyWay * milkyWayDiffuse(d, band, fp2, nuCam);
   if (uStarsOn != 0) {
-    float sigS2 = uStarSigma * uStarSigma;
-    float sigFp2 = 0.25 * fp2;
     vec3 s = vec3(0.0);
-    s += starLayer(d, 45.0, 0.22, 0.10, 8.0, 1.35, 11u, band, 1.5, sigS2, sigFp2, nuCam);      // parlak / seyrek
-    s += starLayer(d, 130.0, 0.30, 0.016, 0.32, 1.15, 5003u, band, 3.0, sigS2, sigFp2, nuCam); // sönük / yoğun
+    s += starLayer(d, 45.0, 0.22, 0.10, 8.0, 1.35, 11u, band, 1.5, sm, nuCam);      // parlak / seyrek
+    s += starLayer(d, 130.0, 0.30, 0.016, 0.32, 1.15, 5003u, band, 3.0, sm, nuCam); // sönük / yoğun
     col += uStarBrightness * s;
   }
   return col;

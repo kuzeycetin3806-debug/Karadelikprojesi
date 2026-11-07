@@ -53,7 +53,7 @@ uniform float uProfROut;            // profil tablosu dış yarıçapı (= r_out
 uniform float uTmax;                // T_max (K)
 uniform float uFcol;                // f_col
 uniform float uFcolInv4;            // f_col⁻⁴
-uniform float uLogYref;             // log10 Y(f_col T_max)
+uniform float uLogYref;             // log10 Y(T_max)  (f_col'dan bağımsız; K2)
 uniform int   uBrightMode;          // 0 = bolometrik (mod A), 1 = band-fotometrik (mod B)
 uniform vec3  uSeries;              // T>1e5 K: Y(T)/Y(1e5) = a x − b + c/x, x = T/1e5
 
@@ -65,7 +65,7 @@ uniform float uEdgeFade;            // dış kenar yumuşatma (disk genişliği 
 uniform int   uStarsOn;
 uniform float uStarBrightness;
 uniform float uMilkyWay;
-uniform float uStarSigma;           // yıldız PSF σ'sı (radyan, gökte)
+uniform float uStarSigma;           // yıldız PSF σ_s: 0.65 TUVAL pikseli × nominal piksel açısı (rad); görüntü düzlemi PSF'i, shader onu iz sürme pikseline çevirir (ESTETİK boyut)
 
 // --- 4b: görsel mod ek girdileri
 uniform vec2  uJitter;              // alt-piksel kaydırma (piksel, [−½,½]); debug'da 0

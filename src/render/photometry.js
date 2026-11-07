@@ -5,13 +5,15 @@
  *   - profil tablosu  T_eff/T_max (256 × R32F, s = √((r−r_in)/(r_out−r_in)) eşlemesi)   → uProfile
  *   - kara cisim LUT   [R,G,B (Y=1), log10 Y] (256 × RGBA32F, log10 T ∈ [3,5])           → uBB
  *   - T > 1e5 K luminans serisi (RJ genişlemesi) normalize katsayıları (a, b, c)          → uSeries
- *   - Y_ref = log10 Y(f_col T_max)                                                         → uLogYref
+ *   - Y_ref = log10 Y(T_max)   (f_col'dan BAĞIMSIZ; denetim K2)                            → uLogYref
  * ve doğrulama için GPU'nun yaptığı hesabın CPU karşılığını (`diskPhotometryCPU`) verir.
  *
  * Fiziksel kural özeti (docs/physics/disk.md §4.3):
  *   renk      : T_obs = g_cam · f_col · T_max · τ(r)  →  kara cisim kromatisitesi (Y = 1)
  *   mod A     : I = (g_cam τ)^4                       (bolometrik; f_col kaybolur)
- *   mod B     : I = Y(T_obs)/Y(f_col T_max) · f_col^-4 (band-fotometrik; g bağımlılığı Y(g T) içinde, ayrıca g³/g⁴ YOK)
+ *   mod B     : I = Y(T_obs)/Y(T_max) · f_col^-4       (band-fotometrik; g bağımlılığı Y(g T) içinde, ayrıca g³/g⁴ YOK)
+ *               Y_ref = Y(T_max) f_col'dan bağımsızdır ⇒ f_col değişimi FİZİKSEL parlaklık değişimini verir (sabit pozlamada
+ *               tepe ≈ f_col⁻⁴ · Y(f_col T_max)/Y(T_max); T_max=1e4, f_col=1.7: 0.416). f_col⁻⁴ normalizasyonla yutulmaz.
  */
 import {
   diskProfileTable,
@@ -100,7 +102,7 @@ export function photometryScalars({ Tmax, fCol, brightnessMode }) {
     tmax: Tmax,
     fCol,
     fColInv4: fCol ** -4,
-    logYref: log10YExact(fCol * Tmax),
+    logYref: log10YExact(Tmax), // K2: f_col'dan bağımsız referans
     brightMode: brightnessMode === 'bolometric' ? 0 : 1,
     series: [s.a, s.b, s.c],
   };
@@ -123,7 +125,7 @@ export function diskPhotometryCPU(cfg, r, gCam) {
   const tau = diskTemperatureProfile(1, a, r, prograde);
   const tauTable = tbl ? sampleDiskProfileTable(tbl, r) : 0;
   const lut = getBlackbodyLUT();
-  const logYref = log10YExact(fCol * Tmax);
+  const logYref = log10YExact(Tmax); // K2
   const ser = getLuminanceSeries();
 
   const out = {};

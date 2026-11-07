@@ -1,6 +1,6 @@
 /**
  * Sonradan işleme zinciri (Adım 4b) — HDR doğrusal radyans → ekran. TAMAMEN ESTETİK/gösterim aşamasıdır:
- *   - pozlama (doğrusal çarpan), bloom (çok seviyeli, ucuz), ton eşleme (ACES/AgX/Neutral), sRGB kodlama, dither.
+ *   - pozlama (doğrusal çarpan; GÖSTERİM ölçeği), bloom (çok seviyeli, ucuz; ESTETİK), ton eşleme (ACES/AgX/Neutral; ESTETİK), sRGB kodlama (gösterim), dither.
  * Fiziksel radyans (iz sürme geçişinin çıktısı) bu aşamada DEĞİŞTİRİLMEZ; bloom ve ton eşleme kapatılabilir.
  *
  * Bloom: Jimenez (CoD:AW) ilerlemeli aşağı örnekleme (13-tap, ilk seviyede Karis ortalaması) + çadır filtreli yukarı örnekleme.

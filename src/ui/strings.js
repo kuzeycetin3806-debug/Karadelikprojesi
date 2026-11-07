@@ -63,10 +63,11 @@ export const S = {
     fovY: { label: 'Görüş alanı', tip: 'Dikey görüş açısı (derece). Işın izleme projeksiyonudur; fizik değişmez.' },
     disk: { label: 'Disk', tip: 'İnce, opak, Page–Thorne ışıyan toplanma diski. Kapalıysa yalnızca merceklenen gökyüzü görünür.' },
     Tmax: { label: 'Disk T_max', tip: 'Disk etkin sıcaklığının tepe değeri (Kelvin). T_eff(r) = T_max·τ(r), τ Page–Thorne profilidir. Kütle ve ṁ yerine doğrudan seçilir.' },
-    diskOut: { label: 'Dış yarıçap', tip: 'Diskin dış kenarı (M). İç kenar daima ISCO\'dur (altında Page–Thorne ışıması yoktur).' },
-    fCol: { label: 'Renk düzeltmesi f_col', tip: 'T_renk = f_col·T_eff. Yıldız kütleli kara delikler için ≈ 1,7. Band modunda parlaklık f_col⁻⁴ ile düşer; gerekirse pozlamayı artırın.' },
+    diskOut: { label: 'Dış yarıçap', tip: 'Diskin dış kenarı (M). İç kenar daima ISCO\'dur (altında Page–Thorne ışıması yoktur). Dış kenar yumuşatması estetiktir.' },
+    diskEdgeFade: { label: 'Dış kenar yumuşatma', tip: 'Diskin dış kenarında, disk genişliğinin bu kesri boyunca ışımayı sönümler (0 = sert kenar). Estetiktir: bu bölgede Page–Thorne ışımasını değiştirir.' },
+    fCol: { label: 'Renk düzeltmesi f_col', tip: 'T_renk = f_col·T_eff. Yıldız kütleli kara delikler için ≈ 1,7. Band modunda renk f_col·T sıcaklığına kayar, yüzey parlaklığı f_col⁻⁴ ile seyrelir (parlaklık f_col⁻⁴·Y(f_col·T)/Y(T) kadar değişir); gerekirse pozlamayı artırın.' },
     brightnessMode: { label: 'Parlaklık modu', tip: 'Band: görünür bantta fotometrik (kara cisim ışınımı gözlem bandında). Bolometrik: toplam ışınım, (g·τ)⁴. Renk her ikisinde aynıdır.', options: { band: 'Band', bolometric: 'Bolometrik' } },
-    exposure: { label: 'Pozlama', tip: 'HDR radyansın ton eşlemeden önceki ölçeği (EV = log₂). Yalnızca gösterim ölçeğidir; ucuzdur, iz sürmeyi yeniden çalıştırmaz.' },
+    exposure: { label: 'Pozlama', tip: 'HDR radyansın ton eşlemeden önceki ölçeği (EV = log₂). Yalnızca GÖSTERİM (görüntüleme) ölçeğidir: fiziksel radyansı değiştirmez, mutlak parlaklık kalibrasyonu değildir. Ucuzdur, iz sürmeyi yeniden çalıştırmaz.' },
     tonemap: { label: 'Ton eşleme', tip: 'HDR → ekran dönüşümü. “Yok” yalnızca [0,1] kırpar ve fiziksel radyansı olduğu gibi gösterir.', options: { aces: 'ACES', agx: 'AgX', neutral: 'Nötr', none: 'Yok' } },
     bloom: { label: 'Bloom', tip: 'Parlak bölgelerin saçılan hale efekti. Estetik sonradan işleme.' },
     bloomStrength: { label: 'Bloom gücü', tip: 'Sahne enerjisinin hale olarak yeniden dağıtılan kesri.' },
@@ -97,7 +98,8 @@ export const S = {
     unavailable: '—',
     docNote: 'Ayrıntı: docs/physics/kerr.md',
     expand: 'Açıklamayı göster/gizle',
-    shadowNote: 'Gölge, sonsuzdaki gözlemci için Bardeen (1973) eğrisidir; r = 50 M\'de kamera için yaklaşık %1–2 sapabilir.',
+    shadowNote: 'Gölge genişliği/yüksekliği, sonsuzdaki gözlemci için Bardeen (1973) kritik eğrisinin α–β düzlemindeki boyutlarıdır (M cinsinden). Kamera yakınken (r ≲ 10 M) kameranın gördüğü gölge bundan belirgin farklıdır: ör. a = 0, r = 5 M\'de pinhole ekran yarıçapı r·tanψ ≈ 6,78 M (≈ %31 büyük; açısal yarıçap ψ ≈ 53,6°, atan(3√3/5) ≈ 46,1°\'ye göre ≈ %16 büyük). r = 10–50 M aralığında fark yaklaşık ±%2 mertebesindedir.',
+    shadowAngNote: 'Açısal gölge yarıçapı için kapalı form yalnızca a = 0\'da vardır; a > 0 için gösterilmez.',
     rows: {
       rPlus: {
         label: 'Olay ufku r₊',
@@ -140,14 +142,19 @@ export const S = {
         src: 'BPT72 · kerr.md §2.4 (frameDraggingOmega, r = r₊)',
       },
       shadowW: {
-        label: 'Gölge genişliği (yatay)',
-        desc: 'Gölge sınırının ekrandaki yatay genişliği Δα, seçili eğim için. Schwarzschild\'de 2·3√3 M ≈ 10,39 M.',
+        label: 'Gölge genişliği (sonsuzdaki gözlemci, Bardeen eğrisi)',
+        desc: 'Sonsuzdaki gözlemci için Bardeen kritik eğrisinin α–β düzlemindeki yatay genişliği Δα (M cinsinden), seçili eğim için. Schwarzschild\'de 2·3√3 M ≈ 10,39 M. Kameranın gördüğü açısal boyut değildir.',
         src: 'Bardeen 1973 · kerr.md §2.11 (shadowBoundary)',
       },
       shadowH: {
-        label: 'Gölge yüksekliği (dikey)',
-        desc: 'Gölge sınırının ekrandaki dikey yüksekliği Δβ, seçili eğim için.',
+        label: 'Gölge yüksekliği (sonsuzdaki gözlemci, Bardeen eğrisi)',
+        desc: 'Sonsuzdaki gözlemci için Bardeen kritik eğrisinin α–β düzlemindeki dikey yüksekliği Δβ (M cinsinden), seçili eğim için. Kameranın gördüğü açısal boyut değildir.',
         src: 'Bardeen 1973 · kerr.md §2.11 (shadowBoundary)',
+      },
+      shadowAng: {
+        label: 'Gölge açısal yarıçapı (kamerada, yalnız a = 0)',
+        desc: 'Schwarzschild\'de r konumundaki statik gözlemcinin gördüğü gölge yarıçapı: sin ψ = 3√3 M·√(1 − 2M/r)/r. Yalnız a = 0\'da kapalı form; a > 0 için gösterilmez. r → ∞ için ψ·r → 3√3 M.',
+        src: 'Synge 1966 · Schwarzschild\'de kritik çarpma parametresi b_c = 3√3 M',
       },
       omegaCam: {
         label: 'Çerçeve sürüklenmesi ω (kamerada)',

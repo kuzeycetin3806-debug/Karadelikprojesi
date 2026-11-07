@@ -8,6 +8,7 @@
 //   renk    = blackbody(T_obs) kromatisitesi (Y = 1)    T > 1e5 K: renk 1e5 K'de sabit;  T < 1e3 K: renk 1e3 K'de sabit
 //   mod A   : I = (g_cam τ)^4                                  (bolometrik; f_col kaybolur)
 //   mod B   : I = 10^(log10 Y(T_obs) − log10 Y_ref) · f_col⁻⁴   (band-fotometrik; g³/g⁴ AYRICA uygulanmaz)
+//             Y_ref = Y(T_max), f_col'dan BAĞIMSIZ ⇒ f_col değişimi fiziksel parlaklık değişimini verir (K2)
 //   Y(T)    : LUT (1e3…1e5 K) | T>1e5: LUT(1e5)·(a x − b + c/x), x = T/1e5 (RJ serisi, 1e5'e çapalı) | T<1e3: Wien söndürmesi
 // ============================================================================
 
@@ -47,7 +48,7 @@ float diskTau(float r) {
 struct DiskPhoto {
   float tau;     // T_eff/T_max
   float Tobs;    // gözlenen renk sıcaklığı (K)
-  float I;       // parlaklık çarpanı (mod A: (gτ)⁴; mod B: Y(T_obs)/Y_ref · f_col⁻⁴)
+  float I;       // parlaklık çarpanı (mod A: (gτ)⁴; mod B: Y(T_obs)/Y(T_max) · f_col⁻⁴)
   float log10Y;  // LUT log10 Y(T_obs) (mod B girdisi; yalnız doğrulama için)
   vec3  rgb;     // kromatisite (Y = 1)
 };

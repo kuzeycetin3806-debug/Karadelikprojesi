@@ -7,16 +7,25 @@
  * Koruma (trace.glsl, uAxisKappa): adım ayrıca κ_a·max(|sinθ|, s_min)/|θ'| ve κ_a·√(max(|sinθ|, s_min)/|p_θ'|) ile sınırlanır.
  *
  * Kurulumlar gpu-validate.mjs'in A, B, C, F, G (L=0 sütunu), H (θ=10°) ve J (r=200) kurulumlarıyla aynıdır (aynı ızgara/r_esc/κ/N).
- * ÇEKİRDEK sınama: debug yolu varsayılan olarak koruma KAPALI (gpu-validate dokunulmaz); burada açıkça `{axisGuard:true}` istenir.
+ * Debug yolunun VARSAYILANI artık koruma AÇIK (= görsel mod, params.axisGuard); burada ayrıca açık {axisGuard:true/false} istenir ve
+ * seçeneksiz çağrının {axisGuard:true} ile BİT-BİT aynı olduğu doğrulanır. Ayrıca GPU κ_a = CPU E32 kappaAxis (guard-assert.mjs).
+ *
+ * Kutba yakın kurulumlar (denetim Ö2.5): P1 θ=1° (a=0.9), P2 θ=179° (a=0.998, güney), P3 θ=3° r=15 (a=0.9).
  *
  * Kabul: (1) her kurulumda koruma AÇIK sınıf uyuşmazlığı ≤ KAPALI uyuşmazlığı (+ gürültü payı 2 piksel) — koruma kötüleştirmemeli;
  *        (2) merkez-sütun şeridinde (|i − i_c| ≤ 6) koruma AÇIK uyuşmazlık ≤ 1 piksel;
- *        (3) bütçesi biten piksel sayısı AÇIK ≤ KAPALI + 2; (4) ortalama adım artışı ≤ %20; (5) eksenden uzak piksellerde (şerit dışı) Δr medyanı bozulmaz.
+ *        (3) bütçesi biten piksel sayısı AÇIK ≤ KAPALI + 2;
+ *        (4) ortalama adım artışı ≤ %20 (kamera kutuptan ≥ 5° uzakta) / ≤ %30 (kutba ≤ 5° yakın kamera, `polar`): gerekçe README §8.2 —
+ *            kutba yakın kamerada ekran ışınlarının çoğu |L| küçük (eksene yakın) olduğundan koruma birçok ışında etkindir; ölçülen artış
+ *            P3'te +%22 (44.5 → 54.4 adım), ama KAPALI yol bu kurulumda R64'e aykırı sonuç verir (uyuşmazlık 12 → 0);
+ *        (5) eksenden uzak piksellerde (şerit dışı) Δr medyanı bozulmaz;
+ *        (6) KAPALI ↔ E32 ve AÇIK ↔ E32 sınıfları bu betikte değil gpu-validate'te sınanır.
  */
 import fs from 'node:fs';
 import { createCamera } from '../../src/math/camera.js';
 import { traceRay, recommendedGpuBudget } from '../../src/math/raytracer.js';
 import { startHarness } from './harness.mjs';
+import { checkAxisKappa } from './guard-assert.mjs';
 
 const deg = (d) => (d * Math.PI) / 180;
 const argv = Object.fromEntries(process.argv.slice(2).map((s) => { const m = s.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [s, true]; }));
@@ -31,7 +40,12 @@ const SETUPS = [
   { name: 'H a=0.9 θ10° r50 tek-ızgara', a: 0.9, th: 10, rCam: 50, odd: true },
   { name: 'J a=0.9 θ75° r200', a: 0.9, th: 75, rCam: 200 },
   { name: 'K a=0.9 θ75° r50 ince ızgara 240×180 (merkez şerit)', a: 0.9, th: 75, rCam: 50, grid: [240, 180], strip: 12 },
+  { name: 'P1 a=0.9 θ=1° r50 tek-ızgara (kuzey kutbuna 1°)', a: 0.9, th: 1, rCam: 50, odd: true, polar: true },
+  { name: 'P2 a=0.998 θ=179° r40 tek-ızgara (güney kutbuna 1°)', a: 0.998, th: 179, rCam: 40, odd: true, polar: true },
+  { name: 'P3 a=0.9 θ=3° r15 tek-ızgara (kutba yakın + yakın kamera)', a: 0.9, th: 3, rCam: 15, odd: true, polar: true },
 ];
+const STEP_LIMIT = 1.2, STEP_LIMIT_POLAR = 1.3;
+
 
 const NAMES = ['captured', 'escaped', 'disk'];
 const cls = (r) => (r.status === 'maxSteps' ? (r.reason === 'budget' && r.fate ? r.fate : 'captured') : r.status);
@@ -59,12 +73,21 @@ try {
       const r = window.__karadelik.renderer;
       r.setParams(qq.params);
       const off = Array.from(await r.renderDebug(qq.w, qq.h, { axisGuard: false }));
+      const kOff = r.getStats().uniforms.axisKappa;
       const on = Array.from(await r.renderDebug(qq.w, qq.h, { axisGuard: true }));
-      return { off, on };
+      const kOn = r.getStats().uniforms.axisKappa;
+      const def = await r.renderDebug(qq.w, qq.h); // seçeneksiz ⇒ varsayılan = params.axisGuard (true)
+      const kDef = r.getStats().uniforms.axisKappa;
+      let defEqOn = def.length === on.length;
+      for (let i = 0; defEqOn && i < on.length; i++) if (def[i] !== on[i] && !(Number.isNaN(def[i]) && Number.isNaN(on[i]))) defEqOn = false;
+      return { off, on, kOff, kOn, kDef, defEqOn, gpAxisGuard: r.getParams().axisGuard };
     }, {
       params: { a: S.a, thetaCam: th, rCam: S.rCam, phiCam: 0, fovY: (fovY * 180) / Math.PI, diskIn: 'isco', diskOut: R_OUT, prograde, quality: 'high', maxDiskHits: 1, analyticFate: true, rEscape: R_ESC, planeGuard: true },
       w: GW, h: GH,
     });
+    for (const m of checkAxisKappa({ gpuOn: raw.kOn, gpuOff: raw.kOff, gpuParamsAxisGuard: raw.gpAxisGuard })) fails.push(`${S.name}: κ_a: ${m}`);
+    if (!raw.defEqOn) fails.push(`${S.name}: renderDebug() seçeneksiz çıktısı {axisGuard:true} ile aynı DEĞİL`);
+    if (Math.fround(raw.kDef) !== Math.fround(raw.kOn)) fails.push(`${S.name}: seçeneksiz yolda yüklenen κ_a ${raw.kDef} ≠ ${raw.kOn}`);
     const cam = createCamera({ a: S.a, rCam: S.rCam, thetaCam: th, phiCam: 0, fovY, width: GW, height: GH });
     const params = { a: S.a, rOut: R_OUT, prograde };
     const icen = (GW - 1) / 2;
@@ -106,9 +129,10 @@ try {
 
     const chk = (c, msg) => { if (!c) fails.push(`${S.name}: ${msg}`); };
     chk(m.on <= m.off + 2, `koruma AÇIK uyuşmazlık ${m.on} > KAPALI ${m.off} + 2`);
-    if (S.strip || S.odd === undefined) chk(m.onStrip <= 1, `merkez şeritte AÇIK uyuşmazlık ${m.onStrip} > 1`);
+    chk(m.onStrip <= 1, `merkez şeritte AÇIK uyuşmazlık ${m.onStrip} > 1`);
     chk(m.budgetOn <= m.budgetOff + 2, `bütçesi biten ${m.budgetOn} > ${m.budgetOff} + 2`);
-    chk(row.meanStepsOn <= 1.2 * row.meanStepsOff, `ort. adım artışı %${(100 * (row.meanStepsOn / row.meanStepsOff - 1)).toFixed(1)} > %20`);
+    const lim = S.polar ? STEP_LIMIT_POLAR : STEP_LIMIT;
+    chk(row.meanStepsOn <= lim * row.meanStepsOff, `ort. adım artışı %${(100 * (row.meanStepsOn / row.meanStepsOff - 1)).toFixed(1)} > %${Math.round(100 * (lim - 1))}`);
     chk(!(row.drFarMedOn > 2 * row.drFarMedOff + 1e-6), `eksenden uzak Δr medyanı bozuldu ${f(row.drFarMedOff)} → ${f(row.drFarMedOn)}`);
   }
 } finally {

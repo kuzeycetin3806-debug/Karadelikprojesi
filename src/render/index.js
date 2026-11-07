@@ -6,7 +6,7 @@
  *      - alt-piksel jitter'lı kare biriktirme (durağan karede ilerleyici anti-aliasing)
  *      - hareket sırasında düşük çözünürlük, durunca tam çözünürlük; animasyonda kare süresine göre otomatik ölçek
  *   2. BLOOM (ESTETİK, isteğe bağlı) : çok seviyeli aşağı/yukarı örnekleme
- *   3. KOMPOZİT (ESTETİK): pozlama + bloom + ton eşleme + sRGB + dither → tuval
+ *   3. KOMPOZİT: pozlama (GÖSTERİM ölçeği) + bloom + ton eşleme (ESTETİK) + sRGB (gösterim kodlaması) + dither → tuval
  *
  * Algoritma GLSL'dedir ve src/math/ CPU referansının f32-RK4 yolunun birebir portudur (4a; gpu-validate ile doğrulanır).
  * Ayrıntı ve parametre sözleşmesi: src/render/README.md
@@ -23,7 +23,7 @@ import {
 } from 'three';
 import { vertexShader, buildFragmentShader } from '../shaders/index.js';
 import {
-  DEFAULT_PARAMS, QUALITY_PRESETS, PERFORMANCE_PRESETS, POST_ONLY_KEYS, NON_INTERACTIVE_KEYS, TURB_PERIOD,
+  DEFAULT_PARAMS, QUALITY_PRESETS, PERFORMANCE_PRESETS, POST_ONLY_KEYS, NON_INTERACTIVE_KEYS, TURB_PERIOD, AXIS_KAPPA,
   normalizeParams, deriveUniforms, effectivePerformance,
 } from './params.js';
 import { attachOrbitControls } from './controls.js';
@@ -187,7 +187,7 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
   let contextLost = false;
   let dirtyTrace = true; // iz sürme yeniden gerekli
   let dirtyPost = false; // yalnız bloom+kompozit gerekli
-  let axisKappaOverride = null; // renderMRT içinde: debug yolunda varsayılan 0 (4a birebir port), {axisGuard:true} ile açılır
+  let axisKappaOverride = null; // renderMRT içinde: {axisGuard} açık/kapalı seçeneğiyle belirlenir (varsayılan: params.axisGuard = görsel modla aynı)
   let interactUntil = 0; // performance.now() < bu ⇒ etkileşim (düşük çözünürlük)
   let simTime = 0; // disk animasyonu zamanı (M)
   let lastLoopT = 0;
@@ -239,7 +239,8 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     U.uMaxSteps.value = d.maxSteps;
     U.uREscape.value = d.rEscape;
     U.uAnalyticFate.value = d.analyticFate;
-    U.uAxisKappa.value = axisKappaOverride ?? d.axisKappa;
+    const axisKappa = axisKappaOverride ?? d.axisKappa;
+    U.uAxisKappa.value = axisKappa;
     U.uDiskOn.value = d.diskOn;
     U.uPlaneGuard.value = d.planeGuard;
     U.uMaxDiskHits.value = d.maxDiskHits;
@@ -274,7 +275,7 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     U.uStarBrightness.value = d.starBrightness;
     U.uMilkyWay.value = d.milkyWay;
     U.uStarSigma.value = d.starSigma;
-    return d;
+    return { ...d, axisKappa }; // gerçekten yüklenen κ_a (doğrulama betikleri okur)
   }
 
   // --- HDR birikim hedefleri (boyuta göre LRU önbellek: etkileşim/dinamik ölçek geçişlerinde hedef yeniden ayrılmaz)
@@ -458,7 +459,7 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
    * MRT debug: float render hedefine (3 × RGBA32F) çizer ve CPU'ya okur. kind: 'debug' (4a düzeni) | 'photo' (PHOTO_FIELDS).
    * jitter yok, biriktirme yok, tuvale dokunmaz.
    */
-  async function renderMRT(kind, width, height, { axisGuard = false } = {}) {
+  async function renderMRT(kind, width, height, { axisGuard = params.axisGuard } = {}) {
     width = Math.max(1, Math.floor(width));
     height = Math.max(1, Math.floor(height));
     if (!renderer.extensions.has('EXT_color_buffer_float')) {
@@ -480,7 +481,7 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     }
     const prevMat = mesh.material;
     mesh.material = debugMaterials[kind];
-    axisKappaOverride = axisGuard ? deriveUniforms(params, width, height).axisKappa : 0;
+    axisKappaOverride = axisGuard ? AXIS_KAPPA : 0;
     stats.uniforms = writeUniforms(width, height, height);
     axisKappaOverride = null;
     U.uJitter.value.set(0, 0);
@@ -512,7 +513,10 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     dirtyTrace = true; // uniform'lar debug boyutuna ayarlandı; görsel kare yeniden yazılmalı
     return out;
   }
-  /** opts.axisGuard=true: görsel moddaki eksen adım korumasıyla (varsayılan false: 4a'nın birebir portu). */
+  /**
+   * opts.axisGuard: varsayılan = params.axisGuard (görsel modla AYNI eksen adım koruması, üretim yolu). Açık {axisGuard:false} = 4a'nın
+   * korumasız birebir portu (yalnız port sınaması için). Gerçekten yüklenen κ_a: getStats().uniforms.axisKappa.
+   */
   const renderDebug = (w, h, o) => renderMRT('debug', w, h, o);
   const renderDebugPhoto = (w, h, o) => renderMRT('photo', w, h, o);
 

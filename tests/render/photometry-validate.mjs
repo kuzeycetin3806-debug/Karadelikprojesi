@@ -3,16 +3,20 @@
  * `node --test` ile çalışmaz.   node tests/render/photometry-validate.mjs [--grid=96x72] [--json=çıktı.json]
  *
  * GPU: renderer.renderDebugPhoto (MODE_DEBUG_PHOTO; türbülans ve kenar yumuşatma KAPALI — ESTETİK öğeler sınanmaz).
- * CPU: aynı kamera/ızgarada traceRay (E32: rk4 + f32 + hamilton + hermite, GPU çekirdeğinin eşleniği) → hit.r, hit.gCam;
+ *      ÜRETİM YOLU: seçenek verilmez ⇒ eksen koruması görsel modla aynı (AÇIK). (Denetim Ö2.6: eski sürüm korumasız GPU çekirdeğini korumalı
+ *      CPU E32 ile karşılaştırıyordu ve [U-U] katmanı fark edilmeden bozulmuştu; artık [U-U] için de eşik var ve κ_a eşitliği denetlenir.)
+ * CPU: aynı kamera/ızgarada traceRay (E32: rk4 + f32 + hamilton + hermite, GPU çekirdeğinin eşleniği; eksen koruması varsayılan AÇIK) → hit.r, hit.gCam;
  *      sonra disk.js (diskTemperatureProfile, blackbodyToLinearSRGB integrali) ile T_obs ve I.
  * Üç katman ayrı raporlanır (neden: hata kaynağını ayırmak):
  *   [PORT]  GPU ↔ CPU(f64, AYNI formül: tablo + LUT enterpolasyonu + seri/Wien) — girdi: GPU'nun kendi (r, g_cam)'ı.
  *           Yalnız f32/cihaz aritmetiği farkı. Eşik MUTLAK: göreli hata medyan ≤ 1e-5, p99 ≤ 2e-4.
  *   [TABLO] CPU(f64, tablo+LUT) ↔ CPU(f64, TAM: diskTemperatureProfile + Planck integrali) — girdi: aynı (r, g_cam).
  *           Tablo/LUT/seri yaklaşıklığı; physics belgesindeki tablo hatalarıyla (disk.md §5.4) uyumlu olmalı. Bilgi (tavan: medyan ≤ 2e-3).
- *   [U-U]   GPU ↔ CPU(f64, TAM) — girdi: CPU E32 izinden (r, g_cam). Uçtan uca: ışın farkı + tablo + f32.
- * Göreli hata yalnız I ≥ 1e-3 (tepe Y_ref = 1'in %0.1'i) olan pikseller için; I < 1e-3 (Wien kuyruğu / ISCO) ayrıca bilgi olarak.
- * Çıkış kodu: [PORT] ve [TABLO] eşikleri sağlanırsa 0.
+ *   [U-U]   GPU ↔ CPU(f64, TAM) — girdi: CPU E32 izinden (r, g_cam). Uçtan uca: ışın farkı + tablo + f32. EŞİK: p99 T_obs ≤ 2e-4, I ≤ 1e-3.
+ *   [K2]    BAĞIMSIZ mod B anlamı: I = f_col⁻⁴ · Y(T_obs)/Y(T_max)  (Y_ref = Y(T_max), f_col'dan bağımsız; denetim K2) — GPU'nun kendi T_obs'u ve
+ *           physics/disk.js'in tam Planck integrali ile. Eşik: medyan ≤ 2e-3 (LUT), p99 ≤ 1e-2.
+ * Göreli hata yalnız I ≥ 1e-3 (mod B tepe parlaklık ≲ 1: f_col=1'de Y(T_max)'a göre) olan pikseller için; I < 1e-3 (Wien kuyruğu / ISCO) ayrıca bilgi olarak.
+ * Çıkış kodu: [PORT], [TABLO], [U-U] ve [K2] eşikleri sağlanırsa 0.
  */
 import fs from 'node:fs';
 import { createCamera } from '../../src/math/camera.js';
@@ -20,6 +24,8 @@ import { traceRay, recommendedGpuBudget } from '../../src/math/raytracer.js';
 import { startHarness } from './harness.mjs';
 import { diskPhotometryCPU } from '../../src/render/photometry.js';
 import { iscoRadius } from '../../src/physics/kerr.js';
+import { blackbodyToLinearSRGB } from '../../src/physics/disk.js';
+import { checkAxisKappa } from './guard-assert.mjs';
 
 const deg = (d) => (d * Math.PI) / 180;
 const argv = Object.fromEntries(process.argv.slice(2).map((s) => { const m = s.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [s, true]; }));
@@ -35,6 +41,7 @@ const SETUPS = [
   { name: 'S5 a=0.998 θ60° Tmax=1e5 f=1.7 band', a: 0.998, th: 60, rCam: 50, Tmax: 1e5, fCol: 1.7, mode: 'band' },
   { name: 'S6 a=0.9 retrograd θ75° Tmax=3e4 f=1.7 bolometrik', a: 0.9, th: 75, rCam: 50, Tmax: 3e4, fCol: 1.7, mode: 'bolometric', prograde: false },
   { name: 'S7 a=0.5 θ60° r=20 Tmax=8e3 f=1.3 band', a: 0.5, th: 60, rCam: 20, Tmax: 8e3, fCol: 1.3, mode: 'band' },
+  { name: 'S8 a=0.9 θ75° Tmax=1e4 f=1.7 band (K2: f_col⁻⁴ Y(T_obs)/Y(T_max))', a: 0.9, th: 75, rCam: 50, Tmax: 1e4, fCol: 1.7, mode: 'band' },
 ];
 
 const quantile = (s, p) => (s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : NaN);
@@ -55,10 +62,11 @@ try {
     const budget = recommendedGpuBudget(S.a, true);
 
     // --- GPU (renderDebugPhoto)
-    const raw = await harness.page.evaluate(async (q) => {
+    const rawAll = await harness.page.evaluate(async (q) => {
       const r = window.__karadelik.renderer;
-      r.setParams(q.params);
-      return Array.from(await r.renderDebugPhoto(q.w, q.h));
+      r.setParams(q.params); // axisGuard verilmez ⇒ varsayılan (AÇIK); renderDebugPhoto seçeneksiz ⇒ üretim yolu
+      const data = Array.from(await r.renderDebugPhoto(q.w, q.h));
+      return { data, kOn: r.getStats().uniforms.axisKappa, gpAxisGuard: r.getParams().axisGuard };
     }, {
       params: {
         a: S.a, thetaCam: th, rCam: S.rCam, phiCam: 0, fovY: (fovY * 180) / Math.PI, diskIn: 'isco', diskOut: R_OUT, prograde, quality: 'high',
@@ -66,6 +74,8 @@ try {
       },
       w: GW, h: GH,
     });
+    const raw = rawAll.data;
+    for (const m of checkAxisKappa({ gpuOn: rawAll.kOn, gpuParamsAxisGuard: rawAll.gpAxisGuard })) fails.push(`${S.name}: κ_a: ${m}`);
 
     // --- CPU E32 izi (uçtan uca girdi)
     const cam = createCamera({ a: S.a, rCam: S.rCam, thetaCam: th, phiCam: 0, fovY, width: GW, height: GH });
@@ -73,7 +83,7 @@ try {
     const e32 = { integrator: 'rk4', precision: 'f32', form: 'hamilton', kappa: budget.kappa, maxSteps: budget.maxSteps, crossing: 'hermite', rEscape: 300, maxDiskHits: 1 };
     const cfg = { a: S.a, prograde, rOut: R_OUT, Tmax: S.Tmax, fCol: S.fCol, brightnessMode: S.mode };
 
-    const acc = { tau: [], Tobs: [], I: [], logY: [], rgb: [], tab_Tobs: [], tab_I: [], tab_rgb: [], tab_tau: [], uu_Tobs: [], uu_I: [], tail: [], rgbExactDiff: [] };
+    const acc = { tau: [], Tobs: [], I: [], logY: [], rgb: [], tab_Tobs: [], tab_I: [], tab_rgb: [], tab_tau: [], uu_Tobs: [], uu_I: [], k2: [], tail: [], rgbExactDiff: [] };
     let nDisk = 0, nBoth = 0, nTail = 0, nSeries = 0, nWien = 0;
     for (let j = 0; j < GH; j++) {
       for (let i = 0; i < GW; i++) {
@@ -100,6 +110,11 @@ try {
         // RGB radyans: GPU (I·rgb, turb=edge=1) ↔ CPU(LUT·ITable); her kanal, tepe bileşene göre göreli
         const rr = c.rgbLut.map((v) => v * c.ITable);
         acc.rgb.push(Math.max(...rr.map((v, k) => Math.abs(gR[k] - v))) / Math.max(...rr));
+        // [K2]: bağımsız mod B anlamı (GPU'nun T_obs'u + tam Planck integrali; Y_ref = Y(T_max))
+        if (S.mode === 'band' && gTobs > 1) {
+          const ik2 = cfg.fCol ** -4 * blackbodyToLinearSRGB(gTobs).luminance / blackbodyToLinearSRGB(cfg.Tmax).luminance;
+          if (ik2 >= 1e-3) acc.k2.push(rel(gI, ik2));
+        }
         // [TABLO]: CPU(tablo+LUT) ↔ CPU(TAM)
         acc.tab_tau.push(Math.abs(c.tauTable - c.tau) / Math.max(c.tau, 1e-30));
         acc.tab_Tobs.push(rel(g1 * cfg.fCol * cfg.Tmax * c.tauTable, c.Tobs));
@@ -120,7 +135,7 @@ try {
       setup: S.name, nDisk, nTail, nSeries, nWien, nBoth,
       port: { tau: stats(acc.tau), Tobs: stats(acc.Tobs), I: stats(acc.I), logY: stats(acc.logY), rgb: stats(acc.rgb), tail_I: stats(acc.tail) },
       tablo: { tau: stats(acc.tab_tau), Tobs: stats(acc.tab_Tobs), I: stats(acc.tab_I), rgb: stats(acc.tab_rgb) },
-      uu: { Tobs: stats(acc.uu_Tobs), I: stats(acc.uu_I) },
+      uu: { Tobs: stats(acc.uu_Tobs), I: stats(acc.uu_I) }, k2: stats(acc.k2),
     };
     results.push(row);
     console.log(`━━ ${S.name}   disk pikseli ${nDisk} (I<1e-3 kuyruk: ${nTail}; T_obs>1e5 K: ${nSeries}; T_obs<1e3 K: ${nWien})`);
@@ -138,6 +153,7 @@ try {
     line('[TABLO] RGB kromatisite (mutlak)', row.tablo.rgb);
     line('[U-U]   T_obs (göreli)', row.uu.Tobs);
     line('[U-U]   I  (göreli)', row.uu.I);
+    if (S.mode === 'band') line('[K2]    I / (f⁻⁴Y(T)/Y(Tmax))', row.k2);
     console.log('');
 
     const chk = (cond, msg) => { if (!cond) fails.push(`${S.name}: ${msg}`); };
@@ -149,7 +165,13 @@ try {
     chk(ok(row.port.rgb.med, 1e-5) && ok(row.port.rgb.p99, 2e-4), `[PORT] RGB med ${f(row.port.rgb.med)} p99 ${f(row.port.rgb.p99)}`);
     chk(ok(row.tablo.I.med, 2e-3), `[TABLO] I medyan ${f(row.tablo.I.med)} > 2e-3`);
     chk(ok(row.tablo.Tobs.med, 2e-3), `[TABLO] T_obs medyan ${f(row.tablo.Tobs.med)} > 2e-3`);
-    if (S.mode === 'bolometric') chk(row.uu.I.n > 100, '[U-U] karşılaştırılabilir piksel az');
+    chk(row.uu.Tobs.n > 200, `[U-U] karşılaştırılabilir piksel az (${row.uu.Tobs.n})`);
+    chk(ok(row.uu.Tobs.p99, 2e-4), `[U-U] T_obs p99 ${f(row.uu.Tobs.p99)} > 2e-4`);
+    chk(ok(row.uu.I.p99, 1e-3), `[U-U] I p99 ${f(row.uu.I.p99)} > 1e-3`);
+    if (S.mode === 'band') {
+      chk(row.k2.n > 100, `[K2] piksel az (${row.k2.n})`);
+      chk(ok(row.k2.med, 2e-3) && ok(row.k2.p99, 1e-2), `[K2] med ${f(row.k2.med)} p99 ${f(row.k2.p99)}`);
+    }
   }
 } finally {
   await harness.close();
@@ -169,7 +191,7 @@ try {
     const run = (extra, w = GW, h = GH) => harness2.page.evaluate(async (q) => {
       const r = window.__karadelik.renderer;
       r.setParams(q.p);
-      return Array.from(await r.renderDebugPhoto(q.w, q.h, { axisGuard: true }));
+      return Array.from(await r.renderDebugPhoto(q.w, q.h));
     }, { p: { ...base, ...extra }, w, h });
     const rIn = iscoRadius(1, S.a, true);
     const w = fade * (R_OUT - rIn);

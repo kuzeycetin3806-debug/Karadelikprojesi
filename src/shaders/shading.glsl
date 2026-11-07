@@ -2,11 +2,11 @@
 // shading.glsl — Adım 4b: iz sürme sonucundan DOĞRUSAL HDR RADYANS (sRGB primerleri, ton eşlemesiz, pozlamasız).
 //
 // FİZİKSEL (bu dosyada): diskin Page–Thorne sıcaklığı, T_obs = g_cam f_col T_max τ, kara cisim rengi/parlaklığı (photometry.glsl),
-//                        gökyüzü yönünden yıldız örnekleme + yerçekimi/Doppler kayması (stars.glsl), yakalanma = siyah.
+//                        gökyüzü yönünden yıldız örnekleme (nokta kaynak: görüntü düzleminde PSF, akı ∝ büyütme μ) + yerçekimi/Doppler kayması (stars.glsl), yakalanma = siyah.
 // ESTETİK  (bu dosyada): türbülans dokusu ve dış kenar yumuşatma (turbulence.glsl), yıldız dağılımı/PSF/Samanyolu (stars.glsl),
 //                        maxDiskHits>1 iken çok vuruşlu yarı saydamlık (α = 0.7; opak diskte ışın ilk vuruşta DURUR),
 //                        yönü bilinmeyen halka pikselleri için gökyüzü ortalaması (skyMeanRadiance).
-// Pozlama, bloom, ton eşleme, sRGB kodlama: post.glsl / composite.frag.glsl (ESTETİK sonrası işlem).
+// Pozlama (GÖSTERİM ölçeği), bloom, ton eşleme (ESTETİK), sRGB kodlama (gösterim): bloom_*.frag.glsl / composite.frag.glsl.
 // ============================================================================
 
 vec3 sanitizeRadiance(vec3 c) {
@@ -50,10 +50,15 @@ vec3 shadeRay(TraceResult T, float nuCam) {
   float fpNom = 2.0 * uTanHalf.y / uResolution.y;
   // komşu piksel geçerli yöne sahip değilse (kaçış/yakalanma/disk sınırı) türev anlamsız ⇒ nominal ayak izi
   float fp2 = (dvf > 0.0) ? fpNom * fpNom : clamp(max(dot(ddx, ddx), dot(ddy, ddy)), 0.25 * fpNom * fpNom, 1.0);
+  // yıldızlar için yerel gökyüzü haritası (görüntü düzlemi PSF + büyütme μ; stars.glsl). Geçerli yalnız yön biliniyor ve komşular geçerliyse.
+  vec2 ndcS = 2.0 * (gl_FragCoord.xy + uJitter) / uResolution - 1.0;
+  vec2 tp = ndcS * uTanHalf;
+  float persp = pow(1.0 + dot(tp, tp), -1.5);
+  SkyMap sm = makeSkyMap(dir, ddx, ddy, known && dvf == 0.0, fpNom, persp);
 
   // --- arka plan (disk vuruşlarının ARKASI). Yakalandı ⇒ siyah.
   vec3 bg = vec3(0.0);
-  if (T.status == 1) bg = known ? skyRadiance(dir, nuCam, fp2) : skyMeanRadiance(nuCam);
+  if (T.status == 1) bg = known ? skyRadiance(dir, nuCam, fp2, sm) : skyMeanRadiance(nuCam);
 
   // --- disk vuruşları ön→arka. status == 2 ise son vuruş OPAK (ışın orada durdu).
   vec3 col = vec3(0.0);
