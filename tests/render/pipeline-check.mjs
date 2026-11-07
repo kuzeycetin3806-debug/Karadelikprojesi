@@ -1,5 +1,5 @@
 /**
- * Görüntü hattı davranış testi (Adım 4b). `node --test` ile çalışmaz.   node tests/render/pipeline-test.mjs
+ * Görüntü hattı davranış testi (Adım 4b). `node --test` ile çalışmaz.   node tests/render/pipeline-check.mjs
  * (SwiftShader'da koşar: zamanlama eşikleri geniş tutulmuştur; mutlak hızlar temsili DEĞİLDİR.)
  *
  *  T1  yalnız-sonradan-işleme parametresi (exposure) iz sürmeyi YENİDEN ÇALIŞTIRMAZ; iz sürme parametresi (Tmax) çalıştırır

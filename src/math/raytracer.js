@@ -18,7 +18,9 @@
  * ADIM KONTROLÜ
  *   integrator 'dp45': Dormand–Prince 5(4), FSAL; hata normu max_i |e_i|/(atol + rtol max(|y|,|y'|)) (t hariç),
  *                      h ≤ capFactor · h_nat(y)  (geodesic.naturalStep; ufuk/eksen/büyük-r ölçeği).
- *   integrator 'rk4' : sabit-formüllü adım h = κ · h_nat(y)  (GPU kuralı; adaptif hata kestirimi yok).
+ *   integrator 'rk4' : sabit-formüllü adım h = κ · h_nat(y)  (GPU kuralı; adaptif hata kestirimi yok), L ≠ 0 iken
+ *                      eksen koruması `axisGuard` (varsayılan AÇIK, trace.glsl ile birebir; README §4.3): kutup ekseninden
+ *                      θ_min ≈ L/p'de "sıçrayan" ışınları çözmek için h ≤ κ_a·min(s/|θ'|, √(s/|p_θ'|)).
  *   precision 'f32'  : yalnız rk4; her işlem Math.fround ile yuvarlanır.
  *
  * Fiziksel / estetik ayrımı: bu modül yalnız fiziksel büyüklükleri üretir (g-faktörü dahil); parlaklık,
@@ -58,6 +60,8 @@ export const DEFAULT_OPTIONS = Object.freeze({
   axisEps: 1e-7, // |L| < axisEps ise L = 0 (tam eksenel ışın) kabul edilir: kutup geçişi sertliğini önler
   planeEps: undefined, // |cosθ_cam| < planeEps ⇒ kamera disk düzleminde (dejenere): kameranın kendisi kesişim sayılmaz. Varsayılan: f64 1e-12, f32 1e-6
   stepRule: 'full', // 'full' | 'nodrag': adım kuralında çerçeve sürüklenmesi (aP/Δ) terimini dışla (yalnız rk4 için anlamlı)
+  axisGuard: true, // rk4: eksen yakını sıçrama koruması (trace.glsl 4b ile birebir; README §4.3). false = korumasız (eski davranış)
+  kappaAxis: 0.15, // axisGuard κ_a (GPU: AXIS_KAPPA = 0.15)
 });
 
 /**
@@ -158,6 +162,33 @@ export function traceRay(params, ray, opts = {}) {
         return (L === 0 ? 0 : L / (s * s)) - a;
       }
     : (yy, F) => F[2];
+  // EKSEN KORUMASI (yalnız rk4, L ≠ 0; src/shaders/trace.glsl ile BİREBİR): L ≠ 0 ışın kutup ekseninden θ_min ≈ L/p'de "sıçrar".
+  // Doğal adım θ'yı MUTLAK κ rad ile sınırlar; θ_min ≪ κ ise sıçrama çözülemez. Çare: h ≤ κ_a·min(s/|θ'|, √(s/|p_θ'|)),
+  // s = max(|sinθ|, s_min), s_min = ¼|L|/√(Q + a² + L²) (L→0'da Zeno'yu önler). Eksenden uzakta sınır etkin değildir.
+  // dp45'te UYGULANMAZ: h ≤ capFactor·h_nat zaten hata denetimiyle birlikte sıçramayı çözer (README §4.3, ölçüm).
+  const useAxis = o.axisGuard && o.integrator === 'rk4' && L !== 0 && o.kappaAxis > 0;
+  let axisCap = null;
+  if (useAxis) {
+    if (f32) {
+      const kaF = fr32(o.kappaAxis);
+      const sMinF = fr32(0.25 * Math.abs(L) / Math.sqrt(Q + a * a + L * L)); // GPU: kamerada, f32 uniform
+      axisCap = (yy, F) => {
+        const se = Math.max(Math.abs(fr32(Math.sin(yy[1]))), sMinF);
+        const c1 = fr32(se / Math.max(Math.abs(F[1]), 1e-30));
+        const c2 = fr32(Math.sqrt(fr32(se / Math.max(Math.abs(F[4]), 1e-30))));
+        return fr32(kaF * Math.min(c1, c2));
+      };
+    } else {
+      const sMin = (0.25 * Math.abs(L)) / Math.sqrt(Q + a * a + L * L);
+      axisCap = (yy, F) => {
+        const se = Math.max(Math.abs(Math.sin(yy[1])), sMin);
+        const c1 = se / Math.max(Math.abs(F[1]), 1e-30);
+        const c2 = Math.sqrt(se / Math.max(Math.abs(F[4]), 1e-30));
+        return o.kappaAxis * Math.min(c1, c2);
+      };
+    }
+  }
+
   const hNat = f32
     ? (yy, F) => G.naturalStepF32(rpF, yy[0], yy[1], F[0], F[1], vphOf(yy, F))
     : (yy, F) => G.naturalStep(rp, yy[0], yy[1], F[0], F[1], vphOf(yy, F));
@@ -291,6 +322,7 @@ export function traceRay(params, ray, opts = {}) {
       let hh = f32
         ? fr32((far ? kappaFarF : kappaF) * hNat(y, ws.k1))
         : (far ? (o.kappaFar ?? o.kappa) : o.kappa) * hNat(y, ws.k1);
+      if (axisCap) hh = Math.min(hh, axisCap(y, ws.k1));
       if (f32) rk4StepF32(f, y, hh, yn, ws, true);
       else rk4Step(f, y, hh, yn, ws, true);
       steps++;

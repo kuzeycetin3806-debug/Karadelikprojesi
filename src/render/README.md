@@ -11,7 +11,7 @@ Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku se
 | `src/render/post.js` | **ESTETİK** sonradan işleme: çok seviyeli bloom (Jimenez) + kompozit (pozlama, ACES/AgX/Neutral, sRGB, dither) |
 | `src/render/controls.js` | GEÇİCİ fare/dokunmatik yörünge kontrolü (kalıcı arayüzü arayüz ajanı yapacak) |
 | `src/shaders/*.glsl`, `index.js` | `common` → `trig` → `geodesic` → `integrator` → `camera` → `crossing` → `escape` → `trace` → `noise` → `photometry` → `turbulence` → `stars` → `shading` → `main.frag`; post: `bloom_down/bloom_up/composite.frag.glsl`. `buildFragmentShader({debug, photo, nativeTrig})` birleştirir |
-| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-test.mjs`**, `api-smoke.mjs`, `perf.mjs`, `visual-snapshots.mjs`, `harness.mjs`. **`node --test` ile çalışmaz** |
+| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-check.mjs`**, `api-smoke.mjs`, `perf.mjs`, `visual-snapshots.mjs`, `harness.mjs`. **`node --test` ile çalışmaz** |
 
 ## 1. Hat
 
@@ -26,7 +26,7 @@ Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku se
         │
   KOMPOZİT               ×exposure + bloom → ton eşleme (ACES | AgX | Neutral | yok) → sRGB OETF → dither     ESTETİK / gösterim
 ```
-`exposure`, bloom ve ton eşleme **yalnız sonradan işlemdir**: bunlar değişince iz sürme yeniden çalışmaz (yalnız bloom + kompozit; `pipeline-test` T1).
+`exposure`, bloom ve ton eşleme **yalnız sonradan işlemdir**: bunlar değişince iz sürme yeniden çalışmaz (yalnız bloom + kompozit; `pipeline-check` T1).
 HDR hedefi RGBA16F'tir (yarım float, doğrusal filtrelenebilir; `EXT_color_buffer_float` ya da `EXT_color_buffer_half_float` gerekir). İkisi de yoksa 8-bit **acil yedek** hedef (radyans/8; bloom yok; §9).
 
 ## 2. Algoritma (4a — CPU `src/math/` f32-RK4 yolunun birebir portu)
@@ -164,7 +164,7 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | Jitter'lı kare biriktirme (ilerleyici AA), uyarlamalı çözünürlük, dinamik ölçek | etkileşim / kalite | `index.js` |
 | `sinCos` (trig.glsl) | **FİZİKSEL** (sayısal kesinlik) | `trig.glsl` |
 
-`bloom:false, tonemap:'none'` ⇒ tuval = sRGB(min(1, exposure·radyans)) (`pipeline-test` T4: maks 1.45/255).
+`bloom:false, tonemap:'none'` ⇒ tuval = sRGB(min(1, exposure·radyans)) (`pipeline-check` T4: maks 1.45/255).
 
 ## 6. Performans ve etkileşim davranışı
 
@@ -259,7 +259,7 @@ GPU `renderDebugPhoto` (96×72, türbülans/kenar kapalı) ↔ CPU: `src/physics
 ESTETİK sağlık denetimi: kenar yumuşatma GPU ↔ CPU smoothstep maks |Δ| 1.6e-7; türbülans çarpanı (amp 0.3, 384×288 ızgara, 54 260 piksel) ortalama 1.013, σ 0.214, aralık 0.52–1.88.
 (Kaba 96×72 ızgarada türbülans çarpanı ≡ 1: piksel ayak izi (0.77 M) hücreden (1 M) büyük ⇒ ayak izi süzmesi tüm oktavları **doğru olarak** söndürür.)
 
-### 8.4 Hat davranışı (`tests/render/pipeline-test.mjs`: `HAT TESTİ: GEÇTİ`)
+### 8.4 Hat davranışı (`tests/render/pipeline-check.mjs`: `HAT TESTİ: GEÇTİ`)
 T1 `exposure` değişimi **0** yeni iz sürme karesi (post çalışır, tuval ×0.48), `Tmax` değişimi iz sürme çalıştırır · T2 parametre değişince iz sürme genişliği 80 (=0.5×160), durunca ≈152 ms sonra 160 ve 3/3 kare biriktirilir ·
 T3 `animationFps=4` ⇒ 2 s'de 10 kare (60 ⇒ 35), kare süresi hedefi tutmayınca `dynamicScale` 1 → 0.35 · **T4 bloom kapalı + tonemap none: 10 029 disk pikselinde |tuval − sRGB(0.5·radyans)| maks 1.45/255, ort 0.40** (fiziksel/estetik ayrımı) ·
 T5 8 kare ↔ 1 kare parlaklık ×1.0028, iki aynı koşu bit-bit aynı (deterministik yıldız/biriktirme) · T6 8-bit yedek hedef çalışır (ort 4.15, maks 18/255 sapma; yalnız acil yedek) · T7 `stop()` sonrası 0 kare · konsol temiz.
@@ -320,7 +320,7 @@ Gözle onaylananlar: yaklaşan (mavi-beyaz, parlak) taraf solda, uzaklaşan (tur
 node tests/render/gpu-validate.mjs [--grid=96x72] [--quick] [--json=cikti.json]   # CPU↔GPU çekirdek (debug yolu, koruma kapalı); eşik sağlanmazsa çıkış kodu 1
 node tests/render/photometry-validate.mjs [--grid=96x72] [--json=cikti.json]      # T_obs/parlaklık/RGB: GPU ↔ disk.js + traceRay gCam
 node tests/render/axis-guard-validate.mjs [--grid=96x72]                          # eksen koruması ↔ R64
-node tests/render/pipeline-test.mjs                                               # biriktirme, etkileşim, animasyon, dinamik ölçek, fiziksel/estetik ayrımı, 8-bit yedek
+node tests/render/pipeline-check.mjs                                               # biriktirme, etkileşim, animasyon, dinamik ölçek, fiziksel/estetik ayrımı, 8-bit yedek
 node tests/render/api-smoke.mjs                                                   # API sözleşmesi
 node tests/render/perf.mjs [--frames=3]                                           # ms/kare, bileşen maliyeti
 node tests/render/visual-snapshots.mjs [--out=/tmp/karadelik-gorsel-4b] [--size=640x480] [--frames=8] [--only=ad]   # PNG'ler (gözle denetim)

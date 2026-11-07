@@ -120,9 +120,10 @@ Türevler zaten hesaplanmış olduğundan ek maliyet ≈ 1 sin + 1 sqrt.
 - `integrator:'dp45'` (referans): Dormand–Prince 5(4), FSAL; norm = max_i |e_i|/(atol + rtol·max(|y_i|,|y'_i|)) (i<5; t hariç);
   denetleyici h·clamp(0.9·err^(−1/5), 0.2, 5); ek olarak **h ≤ capFactor·h_nat** (0.5) — hata tahmini küçükken eksen/ufuk/kesişim
   yapısının atlanmasını önler. Varsayılan rtol=1e-10, atol=1e-12.
-- `integrator:'rk4'` (GPU kuralı): h = κ·h_nat(y); hata kestirimi yok; `maxSteps` = sabit bütçe N. `precision:'f32'`: her işlem `Math.fround`.
+- `integrator:'rk4'` (GPU kuralı): h = κ·h_nat(y), ardından **eksen koruması** (`axisGuard`, §4.3); hata kestirimi yok; `maxSteps` = sabit bütçe N. `precision:'f32'`: her işlem `Math.fround`.
 - `stepRule:'nodrag'` (isteğe bağlı, **varsayılan değil**): φ' yerine L/sinθ − a sinθ (aP/Δ çerçeve sürüklenmesi terimi yok). φ döngüsel olduğundan
   r,θ'ya geri beslenmez; a=0.998'de ufuk yakını adım boyunu gereksiz küçülten tek terim budur. Ölçüm §7 (bütçe yükü ~2× düşer ama p99 Δr bazı vakalarda 1.5–4.6× kötüleşir → önerilmez).
+  **DÜZELTME (eksen koruması sonrası, §7 madde 3):** o p99 kötüleşmesi eksen hatasının eseriydi; korumalı ölçümde `nodrag` doğrulukta `full` ile eşdeğerdir ve bütçe tükenmesini sıfırlar.
 
 ### 4.3 θ eksen tekilliği
 
@@ -134,6 +135,15 @@ Türevler zaten hesaplanmış olduğundan ek maliyet ≈ 1 sin + 1 sqrt.
   (L=1e-9'da adım 1e-14'ün altına iner, `stuck`). Bu yüzden |L| < axisEps ise L := 0 (yön hatası ≲ 2e-8 rad).
   L = 1e-6 ve 1e-3 doğrudan integre edilir (testte süreklilik doğrulanır; L=1e-6'da ~1000 ret).
 - GPU için: aynı yaklaşım (|L| < ε ⇒ L=0 ve `L==0` dalı) ya da sinθ'yı ε'dan aşağı kıstırma; kamera θ_cam'in kutuptan ≥ ~1e-3 rad uzak olması önerilir.
+- **Eksen sıçraması ve `axisGuard` (rk4, varsayılan AÇIK).** `L ≠ 0` küçükse ışın kutup ekseninden θ_min ≈ L/p mesafesinde "sıçrar" (L²cosθ/sin³θ bariyeri). Doğal adım
+  θ değişimini **mutlak** κ rad ile sınırladığından θ_min ≪ κ olunca sıçrama çözülemez ve ışın sahte sonuç verir (yanlış sınıf, sahte disk vuruşu, yanlış kaçış yönü).
+  Grafik ajanı 4b'de GPU'da buldu (`src/render/README.md` §2.1); bu modülün RK4 yolu (f32 ve f64) aynı hatayı yapıyordu, bu yüzden GPU–E32 karşılaştırması onu yakalamadı (yalnız R64 yakalar).
+  Çare (`trace.glsl` ile **birebir**; `kappaAxis = 0.15`, `s_min = ¼|L|/√(Q + a² + L²)`):
+  `h ← min(h, κ_a · min(c1, c2))`, `s = max(|sinθ|, s_min)`, `c1 = s/max(|θ'|, 1e-30)` (göreli θ değişimi), `c2 = √(s/max(|p_θ'|, 1e-30))` (bariyer kuvvetinin zaman ölçeği).
+  Yalnız `L ≠ 0` ve rk4'te uygulanır; eksenden uzak ışınlarda sınır etkin değildir (96×72 ızgarada eksenden uzak 5184 pikselin 5183'ü bit-bit aynı). Seçenekler: `axisGuard` (false = eski, hatalı davranış), `kappaAxis`.
+  **DP5(4) etkilenmez:** h ≤ capFactor·h_nat ve hata denetimi sıçramayı çözer. Ölçüm (4 kurulum × ~7000 piksel; a=0.9/75°, a=0.998/60°, a=0/85°, a=0.9/10°): DP5(4) rtol=1e-10 ↔ rtol=1e-12 ve ↔ f64 RK4 κ=5e-4 (korumasız, N=1e5)
+  sınıf uyuşmazlığı **0/~7000** (maks Δr 2.6e-7, maks yön 1e-4 rad = (b/r_esc)³ kesme hatası); a=0.9/75° merkez şeridinde rtol 1e-8 de 0 uyuşmazlık. Bu yüzden dp45'e dokunulmadı (`axisGuard` onda etkisiz).
+  Testler: `tests/math/axis-guard.test.mjs` (a=0.9, θ=75°, r=50, 240×180, merkez şerit 4320 px: korumasız 229 uyuşmazlık → korumalı 0, f32 ve f64).
 
 ### 4.4 Bütçe bitince analitik sınıflandırma (`fate`)
 
@@ -155,7 +165,7 @@ dışa şişirir (Ö3c, §7). Analitik kural bunu kaldırır; kaçan sınıfta (
 3. Mutlak |ΔH| ufka yakın yakalanan ışınlarda büyür (terimler P²/Δ ~ 1e5): bu nedenle **ΔH/ölçek** (ölçek = |Δp_r²|+|K_θ|+|P²/Δ|) raporlanır.
 4. Carter sabiti Kerr'de **negatif olabilir** (kutup yakını); göreli ΔQ için ölçek |Q|+L² kullanılır (`dQnorm`).
 
-## 6. Doğrulama özeti (gerçek çıktılar; `node --test` → 91/91 geçti, ~2.7 s)
+## 6. Doğrulama özeti (gerçek çıktılar; `node --test tests/math/*.test.mjs` → 63/63 geçti, ~4 s; eksen koruması testleri `axis-guard.test.mjs` dahil)
 
 **Korunum** (DP5(4), rtol=1e-10, atol=1e-12, 160 rastgele ışın/spin, r_cam∈[20,100], b≲10; ΔQ/Q yalnız Q>1):
 
@@ -188,18 +198,24 @@ maks |Δr| = 2.3e-8, maks |Δg| = 2.0e-9 (testte eşik 1e-7). Eski referans (D=1
 her işlemde `Math.fround`, 32×32–40×40 piksel, r_cam = 50, a=0.9, θ_o=75° (diğer: a=0 θ=85°, a=0.998 θ=60°), r_out = 20.
 (`Math.sin/cos` iyimser: `fround(sin)`; gerçek GPU'da 1–2 ulp'den kötü olabilir.)
 
-**Hata kaynağı kesme hatasıdır, float32 değil**: κ=0.05'te Δr medyanı f64-RK4 5.3e-6, f32-RK4 1.5e-5 (aynı mertebe); κ yarılandıkça
-~16× düşer (f64: 8.0e-5 → 5.3e-6 → 3.4e-7). **Kesişim**: Hermite (kübik) doğrusala göre ~200× iyi (Δr medyan 1.5e-5 vs 2.8e-3).
+> **UYARI — eksen hatası (§4.3):** bu bölümün önceki sürümündeki E32–R64 taban uyuşmazlıkları (%0.5 / %1.4), p99 Δr ("gölge kenarı") ve Δg/yön p99 değerleri
+> büyük ölçüde `axisGuard` öncesi RK4'ün eksen-sıçrama hatasındandı. Aşağıdaki tüm RK4 sayıları **korumalı (varsayılan)** halle yeniden ölçüldü; eski (korumasız) değerler
+> karşılaştırma için "eski" olarak verilir. Gölge ρ_c sayıları koruma açık/kapalı **bit-bit aynı** çıktı (gölge kenarı eksenden uzak). Yeniden üretmek: `node tools/float32-study.mjs 0.9 75 50 40 [on|off|both]`.
+
+**Hata kaynağı kesme hatasıdır, float32 değil**: κ=0.05'te Δr medyanı f64-RK4 5.0e-6, f32-RK4 1.4e-5 (aynı mertebe); κ yarılandıkça
+~15–20× düşer (f64: 7.1e-5 → 5.0e-6 → 3.4e-7). **Kesişim**: Hermite (kübik) doğrusala göre ~150× iyi (Δr medyan 1.4e-5 vs 2.1e-3).
 
 | Ayar (Hamilton, f32, Hermite, r_esc=300) | uyuşmazlık | Δr med / p90 / p99 | adım ort/maks | gölge Δρ_c maks |
 |---|---|---|---|---|
-| κ=0.10, N=256 | %1.4 | 7.7e-5 / 9.4e-4 / 1.2 | 47 / 156 | 4.0e-3 |
-| κ=0.05, N=512 | %0.5 | 1.4e-5 / 2.0e-4 / 6.3e-2 | 94 / 314 | 4.3e-3 |
-| κ=0.05, N=1024 | — | — | — | 8.5e-5 |
-| κ=0.025, N=640 | %0.0 | 1.6e-5 / 1.9e-4 / 9.4e-3 | 189 / 628 | 1.8e-1 (bütçe) |
+| κ=0.10, N=256 | %0.0 (eski %1.4) | 7.1e-5 / 5.5e-4 / 1.0e-3 (eski …/9.4e-4/**1.2**) | 50 / 156 (eski 47) | 4.0e-3 |
+| κ=0.05, N=512 | %0.0 (eski %0.5) | 1.4e-5 / 1.6e-4 / 5.1e-4 (eski …/2.0e-4/**6.3e-2**) | 96 / 314 (eski 94) | 4.3e-3 |
+| κ=0.05, N=1024 | — | — | — | 7.1e-5 |
+| κ=0.025, N=640 | %0.0 | 1.6e-5 / 1.7e-4 / 5.0e-4 (eski …/**9.4e-3**) | 189 / 628 (aynı) | 1.8e-1 (bütçe) |
 
-(uyuşmazlık = shader sınıfı: `maxSteps` ⇒ "yakalandı"; yüzdelikler a=0.9/θ=75°, 40×40; p99 gölge kenarındaki birkaç piksele aittir.)
-Diğer vakalar (κ=0.05, N=512): a=0 θ=85°: ort/maks adım 126/265, Δr med 6.9e-5; a=0.998 θ=60°: 70/512, Δr med 1.1e-5 (32 ışın bütçeye takılır).
+(uyuşmazlık = shader sınıfı: `maxSteps` ⇒ "yakalandı"; 40×40, a=0.9/θ=75°, 1600 piksel. Eski p99 değerleri "gölge kenarı" sanılıyordu; eksen sıçramasıymış: korumalı p99 Δr 1–2 mertebe düşer.)
+Korumalı kaçış yönü hatası (κ=0.05): med 1.4e-5, p99 3.5e-5 rad (eski p99 0.51 rad); Δg/g p99 2.5e-5 (eski 1.5e-3). Ortalama adım maliyeti +%2 (merkez şeritte +%9: 115.4 → 126.1).
+Diğer vakalar (κ=0.05, N=512, korumalı): a=0 θ=85°: ort/maks adım 127/267 (eski 126/265), Δr med 5.5e-5 (eski 6.9e-5), p99 9.7e-4 (eski 2.0), uyuşmazlık 10 → 0;
+a=0.998 θ=60°: 71/512 (eski 70/512), Δr med 1.1e-5, p99 2.9e-4 (eski 7.9e-2), uyuşmazlık 2 → 0, bütçeye takılan 32 (değişmedi; başka neden).
 
 **Önerilen shader algoritması (Hamilton, float32):**
 ```
@@ -223,7 +239,7 @@ bütçe bitti → ANALİTİK: içe giden ve (r₊, r)'de R(r)=0 kökü yok ⇒ y
 - **Opak disk** için ilk kesişimde dur (`maxDiskHits=1`); ikincil görüntüler için N≥512 ve döngüde devam.
 
 **float32 riskleri:**
-1. *Biçim*: Carter/u_r durumu (~r²) f32'de kullanılamaz (uyuşmazlık %3.3, Δr medyan 1.8e-2 vs Hamilton %0.0, 1.5e-5). p_r kullanın.
+1. *Biçim*: Carter/u_r durumu (~r²) f32'de kullanılamaz (korumalı: uyuşmazlık %3.1, Δr medyan 1.7e-2 vs Hamilton %0.0, 1.4e-5; korumasız %3.6 — koruma bunu gidermez, koşullanma kaynaklı). p_r kullanın.
 2. *Büyük r_cam*: b² belirsizliği ≈ 2r²·6e-8. Gölge ρ_c f32−f64 hatası: r_cam=30: 2.7e-5, 50: 8.5e-5, 200: 1.5e-3, 500: 5.4e-3, 1000: 3.9e-2 (a=0.9).
    **Piksel cinsinden** (sabit FOV: 1 piksel ≈ r_cam·FOV/H·M; 40° FOV, 1080 piksel için ≈ r_cam·6.4e-4 M): r_cam=50 → 8.5e-5 M ≈ 0.003 piksel;
    200 → 1.5e-3 M ≈ 0.012; 500 → 5.4e-3 ≈ 0.017; 1000 → 3.9e-2 ≈ 0.06 piksel. Yani sabit FOV'da r_cam ≲ 1000 görsel olarak sorunsuzdur ("r_cam ≲ 200 şart"
@@ -234,18 +250,26 @@ bütçe bitti → ANALİTİK: içe giden ve (r₊, r)'de R(r)=0 kökü yok ⇒ y
    85°: 0.154/0.034 M (≈4–5 piksel, 1080p/40°/r_cam=50); N=1024: 0.015–0.021 M; N=2048: 4e-4–8e-4 M**. En kötü yön χ≈191° (Kerr'in yassı prograd kenarı).
    Neden: ufuk yakınında çerçeve sürüklenmesi (φ' ∝ aP/Δ) adımı belirler, oysa φ döngüseldir. **Analitik sınıflandırma (§4.4) bu şişmeyi N=512'de
    0.124→4.3e-5 M (×2860, 60°) ve 0.154→7.8e-5 M (×1980, 85°) düşürür** (f32 düzeyi; N=256'da da 4.3e-5). Bütçesi biten pikseller yine N adım harcar
-   (a=0.998/60°, 40×40: 32 piksel) ama doğru sınıflanır (hepsi DP5 ile uyumlu).
-   `stepRule:'nodrag'` (isteğe bağlı): a=0.998/60° en kötü adım 512→229–231, bütçeyi bitiren piksel 32→0 (sayısal kuralla N=512'de bile gölge hatası 0.124→4.3e-4);
-   ama p99 Δr 7.9e-2→1.2e-1 (a=0.998/60°), 6.3e-2→2.9e-1 (a=0.9/75°), 1.06→0.64 (a=0.998/85°), Δg p99 1.5e-3→4.1e-3 (a=0.9/75°): kritik halka yakınında
-   sürüklenme terimi adımı kendiliğinden inceltiyormuş → varsayılan yapılmadı.
+   (a=0.998/60°, 40×40: 32 piksel) ama doğru sınıflanır (hepsi DP5 ile uyumlu). (Bu maddedeki gölge sayıları koruma açık/kapalı aynı ölçüldü; yeniden doğrulandı: a=0.9/85° N=256/512/1024: 6.4e-1 / 4.8e-3 / 5.7e-5 (maks);
+   a=0.998/60° N=512/1024/2048: 0.124 / 1.5e-2 / 4.3e-4; 85°: 0.154 / 2.1e-2 / 7.7e-4; analitik kural N=512: 4.4e-5 (60°), 7.7e-5 (85°).)
+   `stepRule:'nodrag'` (isteğe bağlı) — **YENİDEN ÖLÇÜLDÜ (korumalı; 40×40, κ=0.05, N=512, f32); önceki sonuç tersine döndü:**
+
+   | vaka | kural | bütçeyi bitiren | adım ort/maks | Δr med / p99 | Δg p99 |
+   |---|---|---|---|---|---|
+   | a=0.998 60° | full ∣ nodrag | 32 ∣ 0 | 71/512 ∣ 64/234 | 1.06e-5 / 2.9e-4 ∣ 9.7e-6 / 3.3e-4 | 2.5e-5 ∣ 1.9e-5 |
+   | a=0.9 75° | full ∣ nodrag | 0 ∣ 0 | 96/314 ∣ 94/250 | 1.4e-5 / 5.1e-4 ∣ 1.3e-5 / 4.1e-4 | 2.5e-5 ∣ 2.4e-5 |
+   | a=0.998 85° | full ∣ nodrag | 48 ∣ 0 | 123/512 ∣ 114/244 | 6.0e-5 / 8.5e-4 ∣ 5.0e-5 / 8.2e-4 | 7.3e-5 ∣ 5.3e-5 |
+
+   Eski gerekçe ("p99 Δr 1.5–4.6× kötü ⇒ varsayılan yapılmadı") eksen hatası nedeniyle yanlıştı: korumasız p99'lar (7.9e-2…1.06) o hatayı ölçüyordu. Korumalıda `nodrag` doğrulukta eşdeğer, en kötü adımı ~2× azaltır ve bütçe tükenmesini sıfırlar (a=0.998'de sayısal kuralla bile N=512 yeterli olabilir).
+   **Öneri (Grafik/koordinatör kararı):** `nodrag`'ı GPU'da da değerlendirin; bu modülde varsayılan değiştirilmedi (GPU ile birebir `full` kuralı korunsun diye). Nodrag'ın gölge ρ_c'ye etkisi bu turda yeniden ölçülmedi (eski değer: 0.124→4.3e-4).
 4. *Hermite şart*: doğrusal kesişim r'de ~3e-3 hata (görünür halka/kenar sorunları) verir.
 5. *p_r' içindeki götürme*: terimler ~2r mertebesinde birbirini götürür (r=20'de mutlak hata ~r·ε₃₂); testlerde baskın değil ama r_cam büyüdükçe 2. maddeye dönüşür.
 6. *sin/cos*: GPU'da `sin` büyük argümanda zayıf; θ ∈ (0,π) küçük kalır, φ yalnızca toplanır (sin/cos gerekmez) — φ'yi toplayın, kullanılacağı yerde indirgeyin (`mod 2π`).
-7. *Eksen*: |L|<1e-7 ⇒ L=0 (kamera tarafında, ışın başına bir kez); kamera θ_cam kutuptan ≥ 1e-3 uzak. L=0 iken `L/s²` ve `L²c/s³` terimleri
+7. *Eksen*: **0 < |L| küçükken eksen-sıçrama koruması şarttır (§4.3: `trace.glsl` axisGuard, κ_a=0.15; bu modülde `axisGuard`).** Korumasız f32/f64 RK4 merkez sütun yakınında sahte sonuç verir (a=0.9/75°/r=50, 240×180 merkez şerit: 229/4320 sınıf hatası → 0). |L|<1e-7 ⇒ L=0 (kamera tarafında, ışın başına bir kez); kamera θ_cam kutuptan ≥ 1e-3 uzak. L=0 iken `L/s²` ve `L²c/s³` terimleri
    0/0 (NaN) vermesin diye ya `L==0` ile atlanmalı ya da `max(s², 1e-30)` ile paydalar kıstırılmalıdır (L=0'da pay da 0 olduğundan sonuç 0 kalır).
 8. *Döngü*: sabit N, erken `break` (çıkan ışınlar için dalsal sapma); iç döngüde `dFdx` gibi türev gerektiren çağrı yok.
 9. *Ufuk yakını*: `captureMargin` 1e-3 yeterli; a=0.998'de r₊=1.063 ve Δ_min ≈ 1e-3·(r₊−r₋)=1.3e-4 (f32 normalinde rahat).
-10. *Doğrulama*: shader çıktısı bu modülün `traceRay` çıktısıyla (aynı κ, N, f32 öykünmesi) piksel piksel karşılaştırılmalı; f64 DP5(4) hedef (Δr medyan ~1e-5).
+10. *Doğrulama*: shader çıktısı bu modülün `traceRay` çıktısıyla (aynı κ, N, f32 öykünmesi) piksel piksel karşılaştırılmalı; f64 DP5(4) hedef (Δr medyan ~1e-5). Aynı `axisGuard` durumu kullanılmalı; yalnız E32'ye karşı doğrulama ortak hataları gizler (4b'de gizledi): R64'e karşı da sınayın.
 
 ## 8. Performans (Node v22.23.4, tek iş parçacığı, 64×64 = 4096 ışın, `tools/bench64.mjs`, en iyi/5)
 
@@ -254,11 +278,12 @@ bütçe bitti → ANALİTİK: içe giden ve (r₊, r)'de R(r)=0 kökü yok ⇒ y
 | DP5(4) f64 rtol=1e-10 (referans) | 606 ms | 148 | 276 |
 | DP5(4) f64 rtol=1e-8 | 256 ms | 62 | 111 |
 | DP5(4) f64 rtol=1e-10, maxDiskHits=4 | 1012 ms | 247 | 471 |
-| RK4 f64 κ=0.05, N=512 | 121 ms | 29 | 94 |
-| RK4 f32-öykünme κ=0.05, N=512 | 187 ms | 46 | 94 |
-| RK4 f32-öykünme κ=0.10, N=256 | 105 ms | 26 | 47 |
+| RK4 f64 κ=0.05, N=512 (korumalı) | 114 ms | 28 | 96 |
+| RK4 f32-öykünme κ=0.05, N=512 (korumalı) | 181 ms | 44 | 96 |
+| RK4 f32-öykünme κ=0.10, N=256 (korumalı) | 95 ms | 23 | 50 |
 
-a=0.998/θ=60°: 349 / 154 / 1016 / 93 / 141 / 80 ms (aynı sıra).
+(Yeniden ölçüldü, eksen koruması AÇIK; adım sayısı 94→96, 47→50. Süreler farklı makine yüküyle ölçüldü: DP5 satırı da 606→524 ms düştü, bu yüzden koruma maliyeti ms'den değil adım sayısından okunmalı ≈ +%2.)
+a=0.998/θ=60°: 301 / 137 / 944 / 82 / 122 / 71 ms (aynı sıra; RK4 ort. adım 71 ve 37, eski 70).
 
 ## 9. Bilinen sınırlamalar / açık noktalar
 

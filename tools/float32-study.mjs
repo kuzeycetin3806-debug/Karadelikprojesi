@@ -8,7 +8,9 @@
  * Ölçülen: (i) sınıflandırma uyuşmazlığı, (ii) disk kesişim yarıçapı ve g hatası,
  *          (iii) gölge sınırı (yakalanma yarıçapı ρ_c) hatası.
  *
- * Kullanım: node tools/float32-study.mjs [a] [theta_deg] [rCam] [grid]
+ * Kullanım: node tools/float32-study.mjs [a] [theta_deg] [rCam] [grid] [guard=both|on|off]
+ *   guard: eksen koruması (raytracer.js `axisGuard`, varsayılan AÇIK). `both` (varsayılan) her yapılandırmayı KAPALI ve AÇIK koşar;
+ *   KAPALI sütunu eksen-sıçrama hatasını içeren eski davranıştır (README §7 notu).
  * (testler `runStudy` ve `shadowErrorF32` fonksiyonlarını kullanır)
  */
 import { createCamera } from '../src/math/camera.js';
@@ -104,21 +106,24 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const thetaDeg = Number(process.argv[3] ?? 75);
   const rCam = Number(process.argv[4] ?? 50);
   const grid = Number(process.argv[5] ?? 40);
+  const guardArg = process.argv[6] ?? 'both';
+  const guards = guardArg === 'on' ? [true] : guardArg === 'off' ? [false] : [false, true];
   console.log(`# float32 çalışması: a=${a} θ_o=${thetaDeg}° r_cam=${rCam} ızgara=${grid}×${grid}`);
   let ref;
   const configs = [];
   for (const form of ['hamilton', 'carter'])
     for (const kappa of [0.2, 0.1, 0.05])
       for (const N of [128, 256, 512])
-        configs.push({ form, kappa, N });
-  console.log('form      κ     N    | uyuşmazlık  maxSteps  adım(ort/max) | Δr max / rms     | Δg_göreli max   | gölge Δρ max');
+        for (const guard of guards)
+          configs.push({ form, kappa, N, guard });
+  console.log('form      κ     N    guard | uyuşmazlık  maxSteps  adım(ort/max) | Δr max / rms     | Δg_göreli max   | gölge Δρ max');
   for (const c of configs) {
-    const cand = { integrator: 'rk4', precision: 'f32', form: c.form, kappa: c.kappa, maxSteps: c.N, crossing: 'hermite' };
+    const cand = { integrator: 'rk4', precision: 'f32', form: c.form, kappa: c.kappa, maxSteps: c.N, crossing: 'hermite', axisGuard: c.guard };
     const r = runStudy({ a, thetaDeg, rCam, grid, candidate: cand, ref });
     ref = r.refRows;
     const sh = shadowErrorF32({ a, thetaDeg, rCam, candidate: cand });
     console.log(
-      `${c.form.padEnd(9)} ${String(c.kappa).padEnd(5)} ${String(c.N).padEnd(4)} | ` +
+      `${c.form.padEnd(9)} ${String(c.kappa).padEnd(5)} ${String(c.N).padEnd(4)} ${(c.guard ? 'AÇIK' : 'KAPALI').padEnd(6)}| ` +
         `${(100 * r.mismatchRate).toFixed(2).padStart(6)}%    ${String(r.nMaxSteps).padStart(5)}    ${r.stepsMean.toFixed(0).padStart(4)}/${String(r.stepsMax).padEnd(4)}  | ` +
         `${fmt(r.dr.max)} ${fmt(r.dr.rms)} | ${fmt(r.dg.max)}    | ${fmt(sh.max)}`
     );

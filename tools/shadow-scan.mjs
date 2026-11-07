@@ -2,6 +2,9 @@
  * Gölge sınırı taraması: ekranda yarıçap taraması + ikiye bölme ile yakalanma sınırı.
  * Hem tests/math/raytracer.test.mjs hem de tools/float32-study.mjs tarafından kullanılır.
  *
+ * `opts` doğrudan traceRay'e gider: rk4 adayları için eksen koruması (`axisGuard`, `kappaAxis`) varsayılan AÇIKTIR; dp45 referansında etkisizdir.
+ * Gölge kenarı eksenden uzak olduğundan (θ_cam ≳ 10°) sonuç koruma durumundan neredeyse bağımsızdır (README §7).
+ *
  * Kullanım (CLI):  node tools/shadow-scan.mjs [a] [theta_deg] [rCam]
  */
 import { createCamera } from '../src/math/camera.js';
