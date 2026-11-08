@@ -13,7 +13,7 @@ Ana oturum **baş mimar, proje yöneticisi ve koordinatördür**:
 ## Alt ajanlar (`.claude/agents/`)
 | Ajan | Model | Effort | Dosya sahipliği |
 |---|---|---|---|
-| `fizik-uzmani` | claude-sonnet-5-5 | high | `src/physics/`, `docs/physics/` |
+| `fizik-uzmani` (GR + yarı-klasik kuantum) | claude-sonnet-5-5 | high | `src/physics/`, `docs/physics/` |
 | `matematik-uzmani` | claude-sonnet-5-5 | high | `src/math/`, `tests/`, `tools/` |
 | `grafik-shader-uzmani` | claude-sonnet-5-5 | high | `src/render/`, `src/shaders/` |
 | `arayuz-ux-uzmani` | claude-sonnet-5-5 | medium | `src/ui/`, `src/styles/`, `index.html` |
