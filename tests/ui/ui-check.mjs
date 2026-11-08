@@ -177,7 +177,7 @@ async function logicDesktop() {
   await page.evaluate(() => { document.querySelector('[data-sec=info]').open = true; });
   await page.evaluate(() => window.__karadelik.ui.set({ a: 0 }));
   await page.fill('#ui-mass', '10');
-  await sleep(200);
+  await page.waitForFunction(() => document.querySelector('[data-info=rPlus] .km')?.textContent.includes('km'), null, { timeout: 30000 });
   const kmTxt = await page.textContent('[data-info=rPlus] .km');
   const expKm = 2 * gravitationalRadiusKm(10);
   check('kütle=10 M☉: r₊ km karşılığı', kmTxt.replace(/\s/g, '').includes(expKm.toFixed(1).replace('.', ',')), `${kmTxt} (beklenen ${expKm.toFixed(2)})`);
