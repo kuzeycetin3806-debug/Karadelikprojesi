@@ -37,6 +37,14 @@ Ortak/paylaşılan dosyalar (`package.json`, `src/main.js`, yapılandırma) **ya
 - Not: Agent aracında `model` geçersiz kılma her zaman mümkündür; `effort` geçersiz kılma yalnızca kullanıcı
   açıkça istediğinde kullanılmalıdır — aksi halde ajanın frontmatter'daki effort değeri geçerlidir.
 
+## Çalışma yöntemi (karma — kullanıcı onaylı)
+- Ajan kullan: büyük ve birbirinden bağımsız işler (paralel) ve HER kritik fizik/matematik değişikliğinin bağımsız denetimi (`bilimsel-denetci`).
+- Ajansız (ana ajan doğrudan): küçük düzeltmeler, metin/yapılandırma değişiklikleri, entegrasyon, testler, arayüz son rötuşları
+  (bağlam zaten ana ajanda; ajan başlatmanın soğuk başlangıç maliyetinden kaçın).
+- Yayın: bu dala her push GitHub Pages ve Netlify'ı yayınlar. Test edilmemiş ara kayıtlar `[skip ci] [skip netlify]` ile;
+  bu ifadeler normal (yayınlanacak) commit mesajlarında metin olarak bile GEÇMEMELİ.
+- Commit öncesi: ilgili tüm doğrulamaları çalıştır, sonucu kontrol etmeden "geçti" yazma.
+
 ## Kullanım limiti
 - Beş ajanı aynı anda çalıştırma; yalnızca gereken uzmanı çağır.
 - Opus/max yalnızca kritik işlerde (denetçi pahalıdır: entegrasyon kilometre taşlarında çağır, her küçük değişiklikte değil).
