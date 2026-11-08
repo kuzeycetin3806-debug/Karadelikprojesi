@@ -830,7 +830,7 @@ async function simpleChecks() {
   await page.waitForSelector('#dlg-privacy[open]');
   const ptxt = await page.textContent('#dlg-privacy');
   check('Gizlilik açılır: yürürlük 7 Kasım 2026, localStorage anahtarları, GitHub Pages/IP, Çocukların gizliliği, İngilizce özet', /7 Kasım 2026/.test(ptxt) && /karadelik\.uiMode/.test(ptxt) && /GitHub Pages/.test(ptxt) && /IP adresi/.test(ptxt) && /Çocukların gizliliği/.test(ptxt) && /does not collect/.test(ptxt));
-  check('Gizlilik: GitHub Gizlilik Bildirimi + depo bağlantıları, e-posta adresi yok', (await page.$$eval('#dlg-privacy a.ext', (a) => a.map((x) => x.href))).join() === 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement' && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(ptxt));
+  check('Gizlilik: GitHub ve Netlify gizlilik bildirimleri + depo bağlantıları, e-posta adresi yok', (await page.$$eval('#dlg-privacy a.ext', (a) => a.map((x) => x.href))).join() === 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement,https://www.netlify.com/privacy/,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://github.com/kuzeycetin3806-debug/Karadelikprojesi,https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement,https://www.netlify.com/privacy/' && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(ptxt));
   check('Gizlilik: “Tam sayfa aç” → gizlilik.html', (await page.getAttribute('#dlg-privacy a.dlg-full', 'href')).endsWith('gizlilik.html'));
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => !document.getElementById('dlg-privacy').open);
@@ -861,7 +861,7 @@ async function docsChecks() {
     if (/\.js$/.test(f) && !f.endsWith('public/sw.js') && /\bfetch\(/.test(t)) bad.push(path.relative(PROJECT_ROOT, f) + ' (fetch)');
   }
   check('kaynak taraması: harici font/CDN/analitik/çerez/ağ API’si yok', bad.length === 0, bad.join(', '));
-  check('kaynakta yalnız GitHub bağlantıları (tıklanabilir, istek değil)', [...hosts].every((h) => /^(github\.com|docs\.github\.com)$/.test(h)), [...hosts].join(','));
+  check('kaynakta yalnız GitHub/Netlify bağlantıları (tıklanabilir, istek değil)', [...hosts].every((h) => /^(github\.com|docs\.github\.com|www\.netlify\.com)$/.test(h)), [...hosts].join(','));
   const codeKeys = new Set();
   for (const f of walk(path.join(PROJECT_ROOT, 'src/ui')).filter((x) => x.endsWith('.js') && !x.endsWith('strings.js'))) for (const m of fs.readFileSync(f, 'utf8').matchAll(/['"`](karadelik\.[A-Za-z]+)['"`]/g)) codeKeys.add(m[1]);
   const policyKeys = new Set(S.privacy.sections.find((x) => x.id === 'storage').blocks.find(([k]) => k === 'dl')[1].map(([k]) => k));
@@ -902,7 +902,7 @@ async function docsChecks() {
       await page.screenshot({ path: path.join(APPLE_OUT, `sayfa-${file.replace('.html', '')}-375.png`), fullPage: false });
       if (file === 'gizlilik.html') {
         const txt = await page.evaluate(() => document.body.innerText);
-        check('gizlilik.html: yürürlük 7 Kasım 2026, sorumlu Kuzey Çetin, GitHub Gizlilik Bildirimi + depo, İngilizce özet, e-posta yok', /7 Kasım 2026/.test(txt) && /Kuzey Çetin/.test(txt) && (await page.$('a[href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement"]')) && (await page.$('a[href="https://github.com/kuzeycetin3806-debug/Karadelikprojesi"]')) && (await page.$('section[lang=en]')) && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(txt));
+        check('gizlilik.html: yürürlük 7 Kasım 2026, sorumlu Kuzey Çetin, GitHub Gizlilik Bildirimi + depo, İngilizce özet, e-posta yok', /7 Kasım 2026/.test(txt) && /Kuzey Çetin/.test(txt) && (await page.$('a[href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement"]')) && (await page.$('a[href="https://github.com/kuzeycetin3806-debug/Karadelikprojesi"]')) && (await page.$('a[href="https://www.netlify.com/privacy/"]')) && (await page.$('section[lang=en]')) && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(txt));
       } else {
         check('kilavuz.html: 8 bölüm, Kontroller/Ne görüyorsunuz/iOS kurulum içerikleri', info.secs === 8 && /Paylaş/.test(await page.evaluate(() => document.body.innerText)));
       }
