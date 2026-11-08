@@ -54,5 +54,5 @@ void setupCameraRay(vec2 ndc, out State y0, out float nuCam) {
   float D = (uCam.x - uRp) * (uCam.x - uRm);
   float pr0 = sqrt(R > 0.0 ? R : 0.0) / D;
 
-  y0 = State(uCam.x, uCam.y, uCam.z, pr0, pTheta);
+  y0 = State(uCam.x, uCam.y, uCam.z, pr0, pTheta, 0.0);
 }

@@ -8,12 +8,22 @@
 import { zamoFrame } from '../math/camera.js';
 import { horizons } from '../math/geodesic.js';
 import { recommendedGpuBudget } from '../math/raytracer.js';
-import { iscoRadius, photonOrbitRadius } from '../physics/kerr.js';
+import { iscoRadius, photonOrbitRadius, keplerOmega } from '../physics/kerr.js';
 
 export const A_MAX = 0.998; // a = 1'de ISCO/diskRedshift tanımsız (README §9)
 export const THETA_MIN = 1e-3; // kutuptan en az 1e-3 rad (math/README §4.3, §9)
 export const AXIS_KAPPA = 0.15; // eksen koruması göreli adım katsayısı κ_a (trace.glsl)
 export const MAX_HITS = 4; // shader'daki MAX_HITS ile aynı olmalı
+/** Sıcak noktanın t = 0'daki azimutu φ0 (rad). φ_s(t_emit) = φ0 + Ω·t_emit. */
+export const HOTSPOT_PHI0 = 0;
+/** hotspotRadius 'isco' ⇒ r_s = HOTSPOT_ISCO_FACTOR · r_ISCO (disk içinde kalacak şekilde kıstırılır). */
+export const HOTSPOT_ISCO_FACTOR = 1.3;
+/**
+ * Yakın kamera güvenli alt sınırı: r_cam ≥ r₊ + RCAM_MARGIN_MIN (M). setParams yalnız r₊ + RCAM_MARGIN_HARD'a kadar kıstırır (eski sınır, değişmedi);
+ * "güvenli" (R64'e karşı doğrulanmış) sınır getStats().limits.rCamMin = r₊ + RCAM_MARGIN_MIN (README §8.5, tests/render/gpu-validate.mjs N–Q kurulumları).
+ */
+export const RCAM_MARGIN_HARD = 0.25;
+export const RCAM_MARGIN_MIN = 0.25;
 
 /** Kalite seviyeleri: κ (adım ölçeği) ve N (adım bütçesi). 'high' → recommendedGpuBudget(a, analytic). */
 export const QUALITY_PRESETS = Object.freeze({
@@ -68,6 +78,12 @@ export const DEFAULT_PARAMS = Object.freeze({
   starBrightness: 1, // ESTETİK ölçek
   milkyWay: 0.6, // ESTETİK Samanyolu bandı şiddeti (0 = yok)
 
+  // --- 5. adım — yörüngede dönen SICAK NOKTA (hotspot.glsl). Kepler Ω + ışık yolu gecikmesi + g FİZİKSEL; genlik/boyut ESTETİK
+  hotspot: false, // sıcak nokta açık/kapalı (animasyon açıkken yörüngede döner)
+  hotspotRadius: 'isco', // 'isco' (= 1.3 × r_ISCO) | sayı (M): yörünge yarıçapı r_s; disk içine [r_in, r_out − hotspotSize] kıstırılır
+  hotspotSize: 0.8, // M: Gauss σ (ESTETİK)
+  hotspotBrightness: 3, // ESTETİK genlik B: yerel ışıma çarpanı 1 + B·exp(−d²/2σ²)
+
   // --- Adım 4b — performans / etkileşim
   performance: 'auto', // 'auto' (4c varsayılan: cihaza/ölçülen kare süresine uyarlanır) | 'quality' | 'balanced' | 'battery' (PERFORMANCE_PRESETS)
   deferred: 'auto', // 4c: ertelenmiş gölgelendirme (geodezik önbelleği): 'auto' (destekleniyorsa) | false (birleşik tek geçiş; test/yedek)
@@ -117,6 +133,7 @@ export const POST_ONLY_KEYS = Object.freeze(['exposure', 'tonemap', 'bloom', 'bl
 export const SHADE_ONLY_KEYS = Object.freeze([
   'Tmax', 'fCol', 'brightnessMode', 'turbulence', 'turbulenceAmp', 'turbulenceScale', 'diskEdgeFade',
   'stars', 'starBrightness', 'milkyWay', 'animate', 'diskTime',
+  'hotspot', 'hotspotRadius', 'hotspotSize', 'hotspotBrightness',
 ]);
 /** Yalnız simülasyon saatinin hızını değiştirir (yeni çizim gerekmez; animasyon geçişi bir sonraki karede yeni hızı kullanır). */
 export const CLOCK_KEYS = Object.freeze(['timeScale']);
@@ -158,6 +175,29 @@ export function effectivePerformance(p, device = {}) {
 }
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+
+/**
+ * Dairesel ekvatoral Kepler yörüngesinin koordinat-zaman periyodu (M birimi): P = 2π/|Ω|, Ω = keplerOmega (src/physics/kerr.js).
+ * a = 0, r = 6 ⇒ 2π·6^{3/2} ≈ 92.3 M. r ≤ r_ph(yön) için Ω tanımsız ⇒ NaN.
+ */
+export function hotspotPeriodM(a, r, prograde = true) {
+  try {
+    const om = keplerOmega(1, a, r, prograde);
+    return Number.isFinite(om) && om !== 0 ? (2 * Math.PI) / Math.abs(om) : NaN;
+  } catch {
+    return NaN;
+  }
+}
+
+/**
+ * Sıcak nokta yörünge yarıçapı (M): 'isco' ⇒ 1.3·r_ISCO, aksi halde sayı; disk içinde kalacak şekilde [r_in, max(r_in, r_out − size)]'a kıstırılır.
+ * @param {object} p normalizeParams çıktısı;  rIn: etkin iç yarıçap (deriveUniforms)
+ */
+export function hotspotOrbitRadius(p, rIn, isco) {
+  const want = p.hotspotRadius === 'isco' ? HOTSPOT_ISCO_FACTOR * isco : p.hotspotRadius;
+  const hi = Math.max(rIn, p.diskOut - p.hotspotSize);
+  return clamp(want, rIn, hi);
+}
 const num = (name, v) => {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new TypeError(`${name} sonlu bir sayı olmalı (verilen: ${v})`);
   return v;
@@ -172,7 +212,7 @@ export function normalizeParams(p, base = DEFAULT_PARAMS) {
   o.a = clamp(num('a', o.a), 0, A_MAX);
   o.thetaCam = clamp(num('thetaCam', o.thetaCam), THETA_MIN, Math.PI - THETA_MIN);
   const { rp } = horizons(o.a);
-  o.rCam = clamp(num('rCam', o.rCam), rp + 0.25, 1000);
+  o.rCam = clamp(num('rCam', o.rCam), rp + RCAM_MARGIN_HARD, 1000);
   o.phiCam = num('phiCam', o.phiCam);
   o.fovY = clamp(num('fovY', o.fovY), 1, 120);
   if (o.diskIn !== 'isco') o.diskIn = Math.max(0, num('diskIn', o.diskIn));
@@ -210,6 +250,10 @@ export function normalizeParams(p, base = DEFAULT_PARAMS) {
   o.stars = !!o.stars;
   o.starBrightness = clamp(num('starBrightness', o.starBrightness), 0, 10);
   o.milkyWay = clamp(num('milkyWay', o.milkyWay), 0, 2);
+  o.hotspot = !!o.hotspot;
+  if (o.hotspotRadius !== 'isco') o.hotspotRadius = Math.max(0, num('hotspotRadius', o.hotspotRadius));
+  o.hotspotSize = clamp(num('hotspotSize', o.hotspotSize), 0.1, 4);
+  o.hotspotBrightness = clamp(num('hotspotBrightness', o.hotspotBrightness), 0, 50);
   if (!(o.performance in PERFORMANCE_PRESETS)) throw new RangeError(`performance 'auto' | 'quality' | 'balanced' | 'battery' olmalı (verilen: ${o.performance})`);
   if (o.deferred !== 'auto') o.deferred = !!o.deferred;
   if (o.maxTracePixels !== null) o.maxTracePixels = Math.max(1e4, num('maxTracePixels', o.maxTracePixels));
@@ -251,6 +295,11 @@ export function deriveUniforms(p, width, height, canvasHeight = height) {
   const tanHalfY = Math.tan((p.fovY * Math.PI) / 360);
   const tanHalfX = (tanHalfY * width) / height;
 
+  // 5. adım: sıcak nokta yörüngesi (FİZİKSEL Kepler Ω; yarıçap disk içine kıstırılır)
+  const diskOn = p.disk && p.diskOut > rIn;
+  const hotR = hotspotOrbitRadius(p, rIn, isco);
+  const hotOmega = keplerOmega(1, a, hotR, p.prograde);
+
   return {
     resolution: [width, height],
     tanHalf: [tanHalfX, tanHalfY],
@@ -266,7 +315,7 @@ export function deriveUniforms(p, width, height, canvasHeight = height) {
     // Kaçış yönü kesme hatası ≈ (b/r_esc)³ rad: geniş görüş açılı uzak kamerada (b ~ r_esc) büyür; terim yalnız o durumda devreye girer.
     rEscape: p.rEscape === 'auto' ? Math.max(300, 2 * p.rCam, 6 * p.rCam * Math.hypot(tanHalfX, tanHalfY)) : p.rEscape,
     analyticFate: p.analyticFate ? 1 : 0,
-    diskOn: p.disk && p.diskOut > rIn ? 1 : 0,
+    diskOn: diskOn ? 1 : 0,
     planeGuard: p.planeGuard ? 1 : 0,
     axisKappa: p.axisGuard ? AXIS_KAPPA : 0,
     stepNoDrag: p.stepRule === 'nodrag' ? 1 : 0,
@@ -281,6 +330,12 @@ export function deriveUniforms(p, width, height, canvasHeight = height) {
     starsOn: p.stars ? 1 : 0,
     starBrightness: p.starBrightness,
     milkyWay: p.milkyWay,
+    // --- 5. adım: sıcak nokta (uHotPhase zamana bağlıdır: index.js φ0 + Ω t_obs mod 2π)
+    hotOn: p.hotspot && diskOn ? 1 : 0,
+    hotR,
+    hotOmega,
+    hotSigma: p.hotspotSize,
+    hotAmp: p.hotspotBrightness,
     // yıldız PSF'i (ESTETİK boyut): GÖRÜNTÜ düzleminde 0.65 nihai tuval pikseli; burada nominal (merceksiz) açı = 0.65 · piksel açısı. Shader PSF'i
     // görüntü düzleminde uygular (yerel Jakobiyen ile gökyüzüne eşler) ve akıyı büyütme μ ile ölçekler (stars.glsl)
     starSigma: 0.65 * ((2 * tanHalfY) / Math.max(1, canvasHeight)),

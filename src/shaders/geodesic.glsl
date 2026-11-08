@@ -4,6 +4,7 @@
 //
 //   dr/dσ  = Δ p_r                      dθ/dσ = p_θ
 //   dφ/dσ  = W/sin²θ − aP/Δ
+//   dt/dσ  = aW − (r²+a²)P/Δ              (5. adım: ışık yolu süresi tDelay için; dinamiğe geri beslenmez)
 //   dp_r/dσ  = −½[Δ' p_r² − 4 r p_t P/Δ + Δ' P²/Δ²]
 //   dp_θ/dσ  = L² cosθ/sin³θ − a² sinθ cosθ p_t²
 //   P = (r²+a²)p_t + aL,  W = L + a sin²θ p_t,  Δ' = 2(r−1)
@@ -39,6 +40,9 @@ State rhs(State y, out vec2 sc) {
   F.ph  = DIR * (Ws2 - uA * PD);
   F.pr  = DIR * (-0.5 * ((t1 + t2) + t3));
   F.pth = DIR * ((g_hasL ? (g_L2 * c) / (s2 * s) : 0.0) - uA2 * (s * c));
+  // dt/dσ = a(L − a sin²θ) − (r²+a²)P/Δ   (p_t = −1; CPU geodesic.js makeRhsHamiltonF32 out[5]). Yalnız kuadratür: r, θ, φ, p'ye geri beslenmez
+  // (adım kuralı F.t'yi kullanmaz) ⇒ r/θ/φ sonuçları bit-bit değişmez.
+  F.t   = DIR * (uA * (g_L - uA * s2) - r2a2 * PD);
   return F;
 }
 

@@ -7,6 +7,8 @@ const DEG = Math.PI / 180;
  * a: dönüş (a/M) · prograde: disk yönü · thetaCam: bakış açısı (rad; 89,5°–90,5° dejenere bandından kaçınılır)
  * rCam: kamera yarıçapı (M) · fovY: null → uygulamanın taban görüş alanı; sayı → en az o kadar (geniş açı)
  * thumbFovY: yalnız küçük resim üretimi için çerçeve.
+ * requires: renderer özelliği (ör. 'hotspot'); renderer desteklemiyorsa sahne şeritte gösterilmez (createUI süzer).
+ * patch.hotspot: yalnız bu sahne sıcak noktayı açar (diğer sahneler kullanıcının seçimini korur; bkz. index.js applyScene).
  */
 export const SCENES = [
   { id: 'schwarzschild', patch: { a: 0, prograde: true, thetaCam: 85 * DEG, phiCam: 0, rCam: 50, disk: true }, fovY: null, thumbFovY: 36 },
@@ -17,6 +19,7 @@ export const SCENES = [
   { id: 'retro', patch: { a: 0.9, prograde: false, thetaCam: 75 * DEG, phiCam: 0, rCam: 50, disk: true }, fovY: null, thumbFovY: 40 },
   { id: 'close', patch: { a: 0.9, prograde: true, thetaCam: 80 * DEG, phiCam: 0, rCam: 12, disk: true }, fovY: 70, thumbFovY: 70 },
   { id: 'below', patch: { a: 0.9, prograde: true, thetaCam: 115 * DEG, phiCam: 0, rCam: 50, disk: true }, fovY: null, thumbFovY: 36 },
+  { id: 'hotspot', patch: { a: 0.9, prograde: true, thetaCam: 75 * DEG, phiCam: 0, rCam: 40, disk: true, hotspot: true }, fovY: null, thumbFovY: 34, requires: 'hotspot' },
 ];
 
 export const DEFAULT_SCENE = 'kerr09'; // renderer varsayılanıyla aynı görünüm (a = 0,9, 75°, 50 M)

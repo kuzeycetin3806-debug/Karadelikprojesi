@@ -26,7 +26,8 @@ import {
 import { vertexShader, buildFragmentShader } from '../shaders/index.js';
 import {
   DEFAULT_PARAMS, QUALITY_PRESETS, PERFORMANCE_PRESETS, POST_ONLY_KEYS, SHADE_ONLY_KEYS, CLOCK_KEYS, LOOP_ONLY_KEYS, NON_INTERACTIVE_KEYS, TURB_PERIOD, AXIS_KAPPA,
-  normalizeParams, deriveUniforms, effectivePerformance,
+  HOTSPOT_PHI0, RCAM_MARGIN_MIN, RCAM_MARGIN_HARD,
+  normalizeParams, deriveUniforms, effectivePerformance, hotspotPeriodM,
 } from './params.js';
 import { attachOrbitControls } from './controls.js';
 import { createPostChain } from './post.js';
@@ -34,7 +35,7 @@ import {
   PROFILE_N, BB_LUT_N, getBlackbodyLUT, getProfileTable, photometryScalars,
 } from './photometry.js';
 
-export { DEFAULT_PARAMS, QUALITY_PRESETS, PERFORMANCE_PRESETS, normalizeParams, deriveUniforms, effectivePerformance };
+export { DEFAULT_PARAMS, QUALITY_PRESETS, PERFORMANCE_PRESETS, normalizeParams, deriveUniforms, effectivePerformance, hotspotPeriodM };
 
 /** Debug çıktısının piksel başına alan sırası (stride = 12 float; satır 0 = görüntünün ÜST satırı). */
 export const DEBUG_FIELDS = Object.freeze([
@@ -212,6 +213,13 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     uTurbAmp: { value: 0 },
     uTurbScale: { value: 1 },
     uEdgeFade: { value: 0 },
+    // 5. adım — sıcak nokta
+    uHotOn: { value: 0 },
+    uHotR: { value: 8 },
+    uHotPhase: { value: 0 },
+    uHotOmega: { value: 0 },
+    uHotSigma: { value: 0.8 },
+    uHotAmp: { value: 3 },
     uStarsOn: { value: 1 },
     uStarBrightness: { value: 1 },
     uMilkyWay: { value: 0 },
@@ -404,6 +412,14 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
     U.uSeries.value.set(ph.series[0], ph.series[1], ph.series[2]);
 
     U.uTime.value = diskTimeUniform();
+    // sıcak nokta: φ_s(t_obs) = (φ0 + Ω_s t_obs) mod 2π f64'te (t_obs sınırsız büyür; f32'de Ω t kaybolmasın). Gecikme (−Ω_s tDelay) shader'da.
+    U.uHotOn.value = d.hotOn;
+    U.uHotR.value = d.hotR;
+    U.uHotOmega.value = d.hotOmega;
+    U.uHotSigma.value = d.hotSigma;
+    U.uHotAmp.value = d.hotAmp;
+    const tObs = params.diskTime !== null ? params.diskTime : simTime;
+    U.uHotPhase.value = (((HOTSPOT_PHI0 + d.hotOmega * tObs) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
     U.uTurbAmp.value = d.turbAmp;
     U.uTurbScale.value = d.turbScale;
     U.uEdgeFade.value = d.edgeFade;
@@ -417,7 +433,8 @@ export function createBlackHoleRenderer(canvas, opts = {}) {
   // --- yol seçimi
   const deferredActive = () => caps.deferred && params.deferred !== false && params.maxDiskHits === 1;
   function isAnimating() {
-    return params.disk && params.turbulence && params.turbulenceAmp > 0 && params.animate && params.timeScale > 0 && params.diskTime === null;
+    // animasyon: türbülans akışı ya da yörüngedeki sıcak nokta (ikisi de A geçişinde; geodezik yeniden izlenmez)
+    return params.disk && ((params.turbulence && params.turbulenceAmp > 0) || params.hotspot) && params.animate && params.timeScale > 0 && params.diskTime === null;
   }
   /** Ertelenmiş hatta taban görüntü türü: animasyonda türbülans A geçişinde ('deferred'), değilse S içinde ('baked'). Birleşik hat: 'fused'. */
   const desiredKind = () => (deferredActive() ? (isAnimating() ? 'deferred' : 'baked') : 'fused');

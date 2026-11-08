@@ -173,8 +173,9 @@ export function evaporationTimeS(massSolar) {
 /**
  * Hawking ışıma gücü, Stefan–Boltzmann kara cisim yaklaşımı (Schwarzschild):
  *   L = A σ T⁴ = ħ c⁶ /(15360 π G² M²),  A = 16π (GM/c²)².   [W]
- * YALNIZ MERTEBE GÖSTERGESİ: gerçek emisyon gri-cisimdir (Γ_s(ω) ile bastırılmış ve türe bağlı);
- * ayrıca çok hafif türler eklenirse toplam güç büyür. 1 M☉: ≈ 9×10⁻²⁹ W.
+ * YALNIZ MERTEBE GÖSTERGESİ: gerçek emisyon gri-cisimdir (Γ_s(ω) türe bağlı): düşük frekanslar bastırılır,
+ * ama yüksek frekansta yakalama kesiti 27πM² > 16πM² olduğundan toplam güç kara cisimden büyük de olabilir;
+ * nötrino/graviton gibi ek türler gücü artırır. Yönü kesin değildir (belirsizlik birkaç kat). 1 M☉: ≈ 9×10⁻²⁹ W.
  */
 export function hawkingLuminosityW(massSolar) {
   const T = hawkingTemperatureK(massSolar, 0);

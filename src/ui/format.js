@@ -40,3 +40,14 @@ export function signed(x, digits = 1) {
   const s = x.toFixed(digits);
   return comma(x > 0 ? `+${s}` : s.replace(/^-/, '−'));
 }
+
+/** Süre (saniye girişi) okunur birimle: ms · s · dk · sa · gün. */
+export function duration(seconds, digits = 3) {
+  if (!Number.isFinite(seconds)) return '—';
+  const a = Math.abs(seconds);
+  if (a < 1) return `${comma((seconds * 1e3).toPrecision(digits))} ms`;
+  if (a < 120) return `${comma(seconds.toPrecision(digits))} s`;
+  if (a < 7200) return `${comma((seconds / 60).toPrecision(digits))} dk`;
+  if (a < 172800) return `${comma((seconds / 3600).toPrecision(digits))} sa`;
+  return `${comma((seconds / 86400).toPrecision(digits))} gün`;
+}

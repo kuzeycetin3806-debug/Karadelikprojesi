@@ -26,6 +26,7 @@ TraceResult traceRay(State y0, float nuCam) {
     T.hitR[k] = -1.0;
     T.hitG[k] = 0.0;
     T.hitPhi[k] = -1.0;
+    T.hitT[k] = 0.0;
     T.hitN[k] = 0;
   }
   T.thInf = -1.0;
@@ -74,8 +75,8 @@ TraceResult traceRay(State y0, float nuCam) {
       bool spurious = camInPlane &&
         ((T.steps == 1 && abs(cA) < PLANE_EPS) || (abs(cA) < PLANE_EPS && abs(cB) < PLANE_EPS));
       if (!spurious) {
-        float rS, thS, phS;
-        refineCrossing(yA, yn, kA, Fn, hh, rS, thS, phS);
+        float rS, thS, phS, tS;
+        refineCrossing(yA, yn, kA, Fn, hh, rS, thS, phS, tS);
         T.planeCrossings++;
         if (diskOn && rS >= uRIn && rS <= uROut && T.hitCount < MAX_HITS) {
           vec2 ang = canonicalAngles(thS, phS);
@@ -84,6 +85,7 @@ TraceResult traceRay(State y0, float nuCam) {
           T.hitR[k] = rS;
           T.hitG[k] = g * nuCam;        // g_cam = g · ν_cam/ν_∞
           T.hitPhi[k] = ang.y;
+          T.hitT[k] = max(-tS, 0.0);    // tDelay = −t (CPU: tDelay: −yS[5]); ≥ 0
           T.hitN[k] = T.planeCrossings;
           T.hitCount++;
         }

@@ -63,6 +63,13 @@ uniform float uTime;                // türbülans zamanı (M birimi; [0, TURB_P
 uniform float uTurbAmp;             // 0 = kapalı
 uniform float uTurbScale;           // M
 uniform float uEdgeFade;            // dış kenar yumuşatma (disk genişliği kesri)
+// --- 5. adım: yörüngedeki SICAK NOKTA (hotspot.glsl). KİNEMATİK + GECİKME + g FİZİKSEL; genlik/boyut ESTETİK
+uniform int   uHotOn;               // 1: sıcak nokta açık
+uniform float uHotR;                // yörünge yarıçapı r_s (M; disk içine kıstırılmış)
+uniform float uHotPhase;            // φ_s(t_obs) = (φ0 + Ω_s t_obs) mod 2π (CPU'da f64; t_obs sınırsız büyüyebilir)
+uniform float uHotOmega;            // Ω_s = keplerOmega(a, r_s, prograde) (işaretli; M⁻¹)
+uniform float uHotSigma;            // Gauss σ (M) — ESTETİK boyut
+uniform float uHotAmp;              // genlik B: yerel ışıma çarpanı 1 + B·exp(−d²/2σ²) — ESTETİK
 uniform int   uStarsOn;
 uniform float uStarBrightness;
 uniform float uMilkyWay;
@@ -83,6 +90,7 @@ struct State {
   float ph;
   float pr;
   float pth;
+  float t;      // 5. ADIM: koordinat zamanı (BL t; ışın geriye izlenirken azalır, t = −tDelay). Dinamiğe geri beslenmez (yalnız kuadratür). CPU: geodesic.js out[5]
 };
 
 // --- ışın başına sabitler (setupCameraRay doldurur)
@@ -103,6 +111,7 @@ struct TraceResult {
   float hitR[MAX_HITS];   // kesişim yarıçapı (Hermite)
   float hitG[MAX_HITS];   // g_cam = g · ν_cam/ν_∞   (FİZİKSEL)
   float hitPhi[MAX_HITS]; // φ ∈ [0, 2π)
+  float hitT[MAX_HITS];   // tDelay ≥ 0: kameradan geriye izlenen koordinat zamanı farkı (M) — yayın t_emit = t_obs − tDelay  (FİZİKSEL; CPU hits[].tDelay)
   int   hitN[MAX_HITS];   // kaçıncı ekvator geçişi (1 = birincil görüntü)
   float thInf;            // kaçış yönü θ_∞ ∈ [0, π]; bilinmiyorsa −1
   float phInf;            // kaçış yönü φ_∞ ∈ [0, 2π); bilinmiyorsa −1

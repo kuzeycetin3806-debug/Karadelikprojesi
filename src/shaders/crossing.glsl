@@ -17,7 +17,7 @@ float hermite(float s, float y0, float hf0, float y1, float hf1) {
 // [yA → yB] adımında cosθ işaret değiştirdi: Hermite arayüzünde cos(θ(s)) = 0 kökünü ikiye bölmeyle bul,
 // sonra r ve φ'yi aynı s'de değerlendir. FA, FB: adım başı/sonu türevleri (DIR dahil), h: kullanılan adım.
 void refineCrossing(State yA, State yB, State FA, State FB, float h,
-                    out float rS, out float thS, out float phS) {
+                    out float rS, out float thS, out float phS, out float tS) {
   float hFAth = h * FA.th, hFBth = h * FB.th;
   float lo = 0.0, hi = 1.0;
   float mlo = sinCos(yA.th).y;
@@ -30,6 +30,7 @@ void refineCrossing(State yA, State yB, State FA, State FB, float h,
   rS  = hermite(s, yA.r,  h * FA.r,  yB.r,  h * FB.r);
   thS = hermite(s, yA.th, hFAth,     yB.th, hFBth);
   phS = hermite(s, yA.ph, h * FA.ph, yB.ph, h * FB.ph);
+  tS  = hermite(s, yA.t,  h * FA.t,  yB.t,  h * FB.t);   // koordinat zamanı (CPU refineCrossing 'hermite': yS[5])
 }
 
 // Ekvatoral dairesel yörüngedeki yayıcıdan SONSUZDAKİ gözlemciye g = 1/(uᵗ(1 − Ωλ))  [kerr.md §2.7–2.8]

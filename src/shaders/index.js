@@ -14,6 +14,7 @@ import trace from './trace.glsl?raw';
 import noise from './noise.glsl?raw';
 import photometry from './photometry.glsl?raw';
 import turbulence from './turbulence.glsl?raw';
+import hotspot from './hotspot.glsl?raw';
 import stars from './stars.glsl?raw';
 import shading from './shading.glsl?raw';
 import main from './main.frag.glsl?raw';
@@ -25,14 +26,14 @@ export { vertexShader };
 
 /** Birleştirme sırası bağımlılık sırasıdır (GLSL'de ileri bildirim yok). */
 export const fragmentChunks = Object.freeze({
-  common, trig, geodesic, integrator, camera, crossing, escape, trace, noise, photometry, turbulence, stars, shading, main,
+  common, trig, geodesic, integrator, camera, crossing, escape, trace, noise, photometry, turbulence, hotspot, stars, shading, main,
 });
 
 /** 4c — ertelenmiş gölgelendirme programlarının parça listeleri (yalnız gerekeni derler: iOS'ta kısa derleme süresi). */
 const MODE_CHUNKS = Object.freeze({
   trace: { common, trig, geodesic, integrator, camera, crossing, escape, trace, main },
-  shade: { common, trig, noise, photometry, turbulence, stars, shading, main },
-  anim: { common, noise, turbulence, main },
+  shade: { common, trig, noise, photometry, turbulence, hotspot, stars, shading, main },
+  anim: { common, noise, turbulence, hotspot, main },
 });
 
 const PRECISION = 'precision highp float;\nprecision highp int;\nprecision highp sampler2D;\n';

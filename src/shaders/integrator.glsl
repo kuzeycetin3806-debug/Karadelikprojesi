@@ -12,6 +12,7 @@ State stateAxpy(State y, float h, State k) {
   o.ph  = y.ph  + h * k.ph;
   o.pr  = y.pr  + h * k.pr;
   o.pth = y.pth + h * k.pth;
+  o.t   = y.t   + h * k.t;
   return o;
 }
 
@@ -29,5 +30,6 @@ State rk4Step(State y, State k1, float h) {
   o.ph  = y.ph  + h6 * ((k1.ph  + 2.0 * (k2.ph  + k3.ph))  + k4.ph);
   o.pr  = y.pr  + h6 * ((k1.pr  + 2.0 * (k2.pr  + k3.pr))  + k4.pr);
   o.pth = y.pth + h6 * ((k1.pth + 2.0 * (k2.pth + k3.pth)) + k4.pth);
+  o.t   = y.t   + h6 * ((k1.t   + 2.0 * (k2.t   + k3.t))   + k4.t);
   return o;
 }
