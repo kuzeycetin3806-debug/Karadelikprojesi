@@ -16,7 +16,7 @@ Ana oturum **baş mimar, proje yöneticisi ve koordinatördür**:
 | `fizik-uzmani` (GR + yarı-klasik kuantum) | claude-sonnet-5-5 | high | `src/physics/`, `docs/physics/` |
 | `matematik-uzmani` | claude-sonnet-5-5 | high | `src/math/`, `tests/`, `tools/` |
 | `grafik-shader-uzmani` | claude-sonnet-5-5 | high | `src/render/`, `src/shaders/` |
-| `arayuz-ux-uzmani` | claude-sonnet-5-5 | medium | `src/ui/`, `src/styles/`, `index.html` |
+| `arayuz-ux-uzmani` | claude-sonnet-5-5 | high | `src/ui/`, `src/styles/`, `index.html` |
 | `bilimsel-denetci` | claude-opus-5-5 | max | salt okunur (Write/Edit yok), yalnızca rapor |
 
 Ortak/paylaşılan dosyalar (`package.json`, `src/main.js`, yapılandırma) **yalnızca ana ajan** tarafından düzenlenir.
