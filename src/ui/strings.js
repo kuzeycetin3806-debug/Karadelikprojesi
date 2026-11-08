@@ -16,31 +16,31 @@ const SCENE_TEXT = {
   kerr09: {
     short: 'Hızlı dönen',
     title: 'Hızlı dönen kara delik (a = 0,9)',
-    text: 'Delik, olabilecek en yüksek dönüş hızının yüzde 90’ı ile dönüyor. Çevresindeki uzay-zaman da dönmeye sürüklenir; bu yüzden diskin iç kenarı, dönmeyen delikteki 6 M yerine yaklaşık 2,3 M’ye kadar yaklaşır ve disk daha sıcak, daha parlak olur. Gölge hafifçe yassılaşır ve bir yana kayar.',
-    look: ['Gölgenin sol kenarı düzleşmiş: gölge tam daire değil.', 'Disk daha içeriye uzanıyor ve iç kenarı çok parlak.', 'Sol taraf (bize doğru gelen yan) belirgin biçimde daha parlak.'],
+    text: 'Delik, aynı kütle için kuramın izin verdiği en yüksek dönme açısal momentumunun yüzde 90’ı ile dönüyor (a = 0,9). Çevresindeki uzay-zaman da dönmeye sürüklenir; disk deliğin dönüşüyle aynı yönde döndüğü için iç kenarı, dönmeyen delikteki 6 M yerine yaklaşık 2,3 M’ye kadar iner ve disk daha sıcak, daha parlak olur. Gölge yan bakışta bir miktar yassılaşır ve ekranda sağa kayar; düzleşen kenar diskin bize yaklaşan (sol) tarafındadır.',
+    look: ['Gölgenin sol kenarı düzleşmiş: gölge tam daire değil.', 'Disk daha içeriye uzanıyor; en parlak bölge iç kenarın hemen dışında (ISCO’nun yaklaşık 1,5 katı uzaklıkta), tam iç kenarda ışıma sıfıra iner.', 'Sol taraf (bize doğru gelen yan) belirgin biçimde daha parlak.'],
   },
   extreme: {
     short: 'Çok hızlı',
     title: 'Neredeyse en hızlı dönen kara delik (a = 0,998)',
-    text: 'Kuramın izin verdiği en yüksek dönüşe (a = 1) çok yakın; bu uygulamada üst sınır bu değerdir. Diskin iç kenarı yaklaşık 1,2 M’ye kadar iner. Gaz deliğe düşerken durgun kütle enerjisinin yaklaşık yüzde 32’si ışığa dönüşebilir (dönmeyen delikte yaklaşık yüzde 5,7).',
+    text: 'Kuramın izin verdiği en yüksek dönüşe (a = 1) çok yakın; bu uygulamada üst sınır 0,998’dir. Diskin iç kenarı yaklaşık 1,2 M’ye kadar iner. Bu ince disk modelinde gaz ISCO’ya kadar yavaşça yaklaşırken durgun kütle enerjisinin yaklaşık yüzde 32’si ışığa dönüşebilir (dönmeyen delikte yaklaşık yüzde 5,7).',
     look: ['Gölgenin belirgin biçimde yassılaşmış ve kaymış hâli.', 'Diskin iç kenarı gölgeye çok yakın.', 'İki yan arasındaki parlaklık farkı büyük.'],
   },
   faceOn: {
     short: 'Yukarıdan',
     title: 'Yukarıdan bakış — yüz yüze',
-    text: 'Kamera deliğin dönme ekseni yakınında, diske tepeden bakıyor (eğim yaklaşık 10°). Disk neredeyse tam bir halka, gölge neredeyse bir daire olarak görünür. Disk bize doğru ya da bizden uzağa hareket etmediği için Doppler parlaklık farkı yandan bakışa göre çok daha küçüktür.',
+    text: 'Kamera deliğin dönme ekseni yakınında, diske tepeden bakıyor (eğim yaklaşık 10°). Disk neredeyse tam bir halka, gölge neredeyse bir daire olarak görünür. Diskin hareketi neredeyse görüş doğrultumuza dik olduğundan, bize doğru ya da bizden uzağa hızı çok küçüktür; bu yüzden iki yan arasındaki Doppler parlaklık farkı yandan bakışa göre çok daha azdır (ama sıfır değildir).',
     look: ['Gölge neredeyse daire.', 'Işıma halka boyunca daha düzgün dağılmış: Doppler farkı küçük.', 'Gölgeyi çevreleyen ince parlak çizgi: foton halkası.'],
   },
   tilt17: {
     short: 'Hafif eğik',
     title: 'Hafif eğik bakış (yaklaşık 17°)',
-    text: 'Deliğe eksenine yakın, yaklaşık 17° eğimle bakıyoruz. Disk bir halka gibi görünür ve bir yanı daha parlaktır. Olay Ufku Teleskobu (EHT) çalışmalarında M87* için eksenin görüş doğrultusuna yaklaşık 17° eğimli olduğu tahmin edilir; bu sahne yalnızca benzer bir bakış geometrisini gösterir, M87* görüntüsü değildir.',
+    text: 'Deliğe eksenine yakın, yaklaşık 17° eğimle bakıyoruz. Disk bir halka gibi görünür ve bir yanı daha parlaktır. M87 galaksisinin jetinin görüş doğrultusuyla yaklaşık 17° yaptığı radyo (VLBI) gözlemlerinden bilinir ve Olay Ufku Teleskobu (EHT) çalışmalarında M87* için eksen eğimi olarak varsayılır. Bu sahne yalnızca benzer bir bakış geometrisini gösterir; M87*’nin görüntüsü değildir (orada parlak taraf güneydedir, spin ölçülmemiştir ve gaz akışı çok daha sıcak ve kalındır).',
     look: ['Halkanın sol yanı sağından daha parlak.', 'Gölge hâlâ neredeyse yuvarlak, ama hafifçe kaymış.', 'Gölgenin kenarında parlak foton halkası.'],
   },
   retro: {
     short: 'Ters dönen',
     title: 'Ters dönen disk (retrograd)',
-    text: 'Disk, deliğin dönüşünün tersi yönünde dönüyor. Bu durumda diskin en içteki kararlı yörüngesi (ISCO) uzaklaşır: a = 0,9 için yaklaşık 8,7 M (diskin delikle aynı yönde döndüğü durumda 2,3 M). Disk deliğe yaklaşamaz, daha az ışır (verim yaklaşık yüzde 3,9) ve ortadaki boşluk geniş görünür.',
+    text: 'Disk, deliğin dönüşünün tersi yönünde dönüyor. Bu durumda diskin en içteki kararlı yörüngesi (ISCO) uzaklaşır: a = 0,9 için yaklaşık 8,7 M (diskin delikle aynı yönde döndüğü durumda 2,3 M). Bu modelde ince disk ISCO’da biter, bu yüzden daha az ışır (verim yaklaşık yüzde 3,9) ve ortadaki boşluk geniş görünür.',
     look: ['Diskin iç kenarı gölgeden belirgin biçimde uzakta.', 'Parlak taraf bu kez sağda: bize doğru gelen yan değişti.', 'Gölgenin şekli diskin yönüne bağlı değildir; yalnız deliğin dönüşüne ve bakış açısına bağlıdır.'],
   },
   close: {
@@ -52,7 +52,7 @@ const SCENE_TEXT = {
   below: {
     short: 'Alttan',
     title: 'Diskin altından bakış',
-    text: 'Kamera disk düzleminin altında (eğim 115°). Kara delik ve disk ekvator düzlemine göre simetrik olduğundan bu görüntü, üstten 65° ile bakışın alt-üst çevrilmiş hâlidir. Yani deliğin arkasından bükülen yay artık gölgenin altında, diskin yakın kısmı ise üstünde görünür.',
+    text: 'Kamera disk düzleminin altında (eğim 115°). Kara delik ve disk ekvator düzlemine göre simetrik, ince disk de iki yüzünden aynı ışıdığı için bu görüntü, üstten 65° ile bakışın alt-üst çevrilmiş hâlidir. Yani deliğin arkasından bükülen yay artık gölgenin altında, diskin yakın kısmı ise üstünde görünür.',
     look: ['Merceklenmiş arka yay gölgenin altında.', 'Diskin yakın kısmı gölgenin üstünden geçiyor.', 'Dönüş yönü değişmedi: bize doğru gelen (parlak) yan yine solda.'],
   },
 };
@@ -175,14 +175,14 @@ export const S = {
         blocks: [
           ['p', 'Kara delik, kütleçekiminin o kadar güçlü olduğu bir bölgedir ki belli bir sınırın içinden ışık bile dışarı çıkamaz. Bu sınıra olay ufku denir. Dönmeyen bir kara deliğin ufku, kütlesine bağlı olarak 2GM/c² yarıçaplı bir küredir: Güneş kütlesi için yaklaşık 3 km. Bu uygulamada uzunluklar M birimiyle verilir (M = GM/c²); bu birimde dönmeyen deliğin ufkunun yarıçapı 2 M’dir.'],
           ['dl', [
-            ['Işığın bükülmesi (merceklenme)', 'Kütleçekimi uzay-zamanı büker; ışık da bu eğri uzayda düz çizgi izlemez. Bu yüzden deliğin arkasındaki disk ve yıldızlar, delikle birlikte gözümüze doğru bükülerek görünür.'],
-            ['Gölge', 'Ufkun kendisini göremezsiniz; gördüğünüz karanlık daire gölgedir. Işık bükülüp deliğe düştüğü için gölge ufuktan daha büyük görünür: dönmeyen delikte gölgenin yarıçapı 3√3 M ≈ 5,2 M, yani ufkun (2 M) yaklaşık 2,6 katıdır. Bu değer, deliğe uzaktan bakan gözlemci içindir.'],
-            ['Foton halkası', 'Gölgenin kenarında ışık deliğin çevresinde bir veya birkaç tur dolanıp gözümüze ulaşır ve ince, parlak bir halka oluşturur. Dönmeyen delikte ışığın dairesel yörüngede dolanabildiği yarıçap 3 M’dir.'],
+            ['Işığın bükülmesi (merceklenme)', 'Kütleçekimi uzay-zamanı büker; ışık bu eğri uzay-zamanda kendi “en düz” yolunu izler, ama bu yol bize bükülmüş görünür. Bu yüzden deliğin arkasında kalan disk ve yıldızların ışığı deliğin çevresinden dolanıp gözümüze ulaşır; görüntüler kayar ve çarpılır.'],
+            ['Gölge', 'Gölge, geriye doğru izlediğimizde ufka varan ışınların geldiği karanlık bölgedir; ufkun kendisinden büyük görünür, çünkü ufka yeterince yaklaşan ışık kütleçekimiyle bükülüp deliğe düşer. Dönmeyen delikte gölgenin yarıçapı 3√3 M ≈ 5,2 M, yani ufkun (2 M) yaklaşık 2,6 katıdır. Bu değer, deliğe uzaktan bakan gözlemci içindir. Dönen deliklerde gölge, bakış açısına bağlı olarak yassılaşır ve bir yana kayar (yan bakışta belirgin, tepeden bakışta çok az).'],
+            ['Foton halkası', 'Gölgenin hemen dışında, ışık deliğin çevresinde yarım tur veya daha fazla dolanıp gözümüze ulaşır; bu görüntüler gölge kenarında ince, parlak bir halka oluşturur. Halka, deliğe yakın “foton yörüngelerine” yakın dolanan ışığın izidir. Dönmeyen delikte bu kararsız dairesel foton yörüngesi 3 M’de bulunur (halkanın ekrandaki yarıçapı ise 5,2 M görünür). Dönen deliklerde tek bir yarıçap yoktur: ışık, delikten farklı uzaklıklardaki bir yörünge ailesinde dolanabilir (a = 0,9 için ekvatorda 1,6 M ile 3,9 M arası).'],
             ['ISCO (diskin iç kenarı)', 'Gaz deliğin çevresinde dairesel yörüngelerde döner; ama belli bir yarıçaptan içeride kararlı dairesel yörünge yoktur. Bu sınıra ISCO (en içteki kararlı dairesel yörünge) denir; dönmeyen delikte 6 M’dir. Bu simülasyonda ince disk ISCO’da başlar. Delik hızlı döndükçe ve disk onunla aynı yönde dönerse ISCO deliğe yaklaşır (a = 0,998 için yaklaşık 1,2 M).'],
-            ['Doppler etkisi', 'Disk dönerken bir yanı bize doğru gelir, öbür yanı bizden uzaklaşır. Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsı görünür.'],
-            ['Kütleçekimsel kırmızıya kayma', 'Işık kütleçekim kuyusundan çıkarken enerji kaybeder. Deliğe yakın bölgelerden gelen ışık bu yüzden daha kırmızı ve daha sönüktür.'],
+            ['Doppler etkisi', 'Disk dönerken bir yanı bize doğru gelir, öbür yanı bizden uzaklaşır. Yaklaşan taraf daha parlak ve daha sıcak (mavimsi), uzaklaşan taraf daha sönük ve daha kırmızımsı görünür. Bu simülasyonda gözlenen renk sıcaklığı T_gözlenen = g·T ile kayar (g: toplam kayma faktörü).'],
+            ['Kütleçekimsel kırmızıya kayma', 'Işık kütleçekim kuyusundan çıkarken enerjisi azalır: aynı sıcaklıktaki gaz, deliğe ne kadar yakınsa gözümüze o kadar kırmızı ve sönük ulaşır. Diskin iç bölgeleri çok sıcak olduğu için yine de en parlak bölgelerdir. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.'],
           ]],
-          ['note', 'Önemli: Bu bir fotoğraf değil, fizik denklemleriyle hesaplanan bir simülasyondur ve disk modeli ince ve soğuktur; gerçek gözlemlerdeki sıcak, kalın gaz akışları farklı görünür. Olay ufkunun içi, ışık çıkamadığı için hiçbir şekilde görünmez.'],
+          ['note', 'Önemli: Bu bir fotoğraf değil, fizik denklemleriyle hesaplanan bir simülasyondur. Disk modeli geometrik olarak ince, ışınımla soğuyan klasik bir toplanma diskidir (Novikov–Thorne / Page–Thorne); korona, jet, manyetik alan ve polarizasyon yoktur. M87* gibi gerçek kara deliklerin çevresindeki sıcak, kalın gaz akışları farklı görünür. Olay ufkunun içi, ışık çıkamadığı için hiçbir şekilde görünmez.'],
         ],
       },
       {
@@ -211,7 +211,7 @@ export const S = {
           ['p', '“…” menüsünden Ayarlar’ı açın. Üstteki Basit | Gelişmiş anahtarı kontrol sayısını belirler; seçiminiz bu cihazda hatırlanır. Her kontrolün yanındaki “?” düğmesi kısa bir açıklama gösterir.'],
           ['h', 'Basit mod'],
           ['dl', [
-            ['Dönüş hızı (a)', 'Kara deliğin dönüş hızı, 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe disk deliğe yaklaşır ve görüntü asimetrik olur.'],
+            ['Dönüş hızı (a)', 'Kara deliğin dönüş hızı (tam adı: açısal momentum oranı a = J/M²), 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe (disk deliğle aynı yönde dönüyorsa) disk deliğe yaklaşır ve görüntü asimetrik olur.'],
             ['Bakış açısı (eğim θ)', 'Kara deliğe hangi açıdan baktığınız. 0°’ye yakın: tepeden; 90°’ye yakın: diski yandan görürsünüz; 90°’den büyük: diskin altından.'],
             ['Uzaklık (r)', 'Kara delikten uzaklığınız. “M” kara deliğin kütlesine bağlı uzunluk birimidir (M = GM/c²). Yakınken ışık çok daha fazla bükülür.'],
             ['Animasyon', 'Diskin dönüşünü canlandırır. Kapalıyken görüntü durağandır, pil daha az harcanır.'],
@@ -248,9 +248,9 @@ export const S = {
           ['dl', [
             ['Gölge ve foton halkası', 'Ortadaki karanlık bölge ve kenarındaki ince parlak halka (ayrıntı için “Kara delik nedir?” bölümüne bakın).'],
             ['Merceklenmiş disk', 'Kara deliğin arkasında kalan disk bölümünün ışığı delikle bükülerek gölgenin üstünde (altından bakınca altında) görünür hâle gelir. Bu yüzden yandan bakarken bile diskin “arka kemeri” gölgenin üzerinden aşar.'],
-            ['Doppler parlaması', 'Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Diskin dönüşü deliğin dönüşüyle aynı yöndeyse (prograd) bu bakışla yaklaşan taraf solda olur; ters yönde dönüyorsa sağda.'],
-            ['Kırmızıya kayma', 'Kütleçekimi kuyusundan çıkan ışık enerji kaybeder: ufka yakın bölgelerden gelen ışık daha kırmızı ve sönüktür. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.'],
-            ['Spin etkisi', 'Dönen deliklerde disk iç kenarı (ISCO) deliğe daha çok yaklaşır, disk daha sıcak ve parlak olur; gölge hafifçe yassılaşıp bir yana kayar.'],
+            ['Doppler parlaması', 'Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Diskin dönüşü deliğin dönüşüyle aynı yöndeyse (prograd) yaklaşan taraf solda olur; ters yönde dönüyorsa sağda. Bu, diskin üstünden de altından da bakınca aynıdır.'],
+            ['Kırmızıya kayma', 'Işık kütleçekim kuyusundan çıkarken enerjisi azalır: aynı sıcaklıktaki gaz, deliğe ne kadar yakınsa gözümüze o kadar kırmızı ve sönük ulaşır. Diskin iç bölgeleri çok sıcak olduğu için yine de en parlak bölgelerdir. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.'],
+            ['Spin etkisi', 'Dönen deliklerde disk iç kenarı (ISCO) deliğe daha çok yaklaşır (disk deliğin dönüşüyle aynı yöndeyse), disk daha sıcak ve parlak olur; gölge yassılaşıp ekranda bir yana kayar. Bu, yan bakışta belirgindir; tepeden bakışta neredeyse kaybolur.'],
           ]],
           ['note', 'Renkler kara cisim ışımasına dayanır ve yaklaşıktır; bloom, türbülans dokusu ve yıldız dağılımı gibi görsel efektler estetiktir. Ayrıntı için Hakkında penceresine bakın.'],
         ],
@@ -476,7 +476,7 @@ export const S = {
   },
 
   controls: {
-    a: { label: 'Dönüş hızı (a)', tip: 'Boyutsuz dönme parametresi a/M. 0 = Schwarzschild. Üst sınır 0,998 (a = 1\'de ISCO ve kırmızıya kayma tanımsızlaşır).' },
+    a: { label: 'Dönüş hızı (a)', tip: 'Boyutsuz açısal momentum oranı a = J/M² (günlük dilde “dönüş hızı”). 0 = Schwarzschild. Üst sınır 0,998 (a = 1\'de ISCO ve kırmızıya kayma tanımsızlaşır).' },
     prograde: { label: 'Disk dönüş yönü', tip: 'Prograd: disk deliğin dönüşüyle aynı yönde; ISCO küçülür ve verim artar. Retrograd: ters yönde (ISCO büyür).', options: { true: 'Prograd', false: 'Retrograd' } },
     thetaCam: { label: 'Bakış açısı (eğim θ)', tip: 'Kameranın dönme eksenine göre kutupsal açısı. 0° = kutuptan (yüzden), 90° = disk düzlemi. 89,5°–90,5° bandı dejenere olduğundan atlanır.' },
     phiCam: { label: 'Yön (azimut φ)', tip: 'Kameranın eksen çevresindeki konumu. Eksenel simetri nedeniyle görüntüyü yalnızca disk deseni/gökyüzü yönünde değiştirir.' },
@@ -504,7 +504,7 @@ export const S = {
   },
 
   simpleTip: {
-    a: 'Kara deliğin ne kadar hızlı döndüğü. 0 = dönmüyor; büyüdükçe disk deliğe yaklaşır ve görüntü yamulur.',
+    a: 'Kara deliğin ne kadar hızlı döndüğü (tam adı: açısal momentum oranı a = J/M²). 0 = dönmüyor; büyüdükçe disk deliğe yaklaşır ve görüntü yamulur.',
     thetaCam: 'Kara deliğe hangi açıdan baktığınız. Küçük değer: tam tepeden (disk yuvarlak görünür). 90°’ye yakın: yandan (disk ince çizgi).',
     rCam: 'Kara delikten uzaklığınız. Küçük değer: yakın, görüntü daha çok bükülür. M, kara deliğin kütlesine bağlı uzunluk birimidir.',
     Tmax: 'Diskin en sıcak yerinin sıcaklığı (Kelvin). Düşükse kırmızı-turuncu, yüksekse beyaz-mavimsi görünür.',

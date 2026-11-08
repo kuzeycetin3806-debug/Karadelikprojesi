@@ -361,6 +361,28 @@ Ayrıştırma (320×240, A high; kopya üzerinde `shadeRay` sabitlenerek): iz s�
 bloom + kompozit ≲ %10. Bileşen tablosu (`perf.mjs` bölüm 2): tam varsayılan 100 %, yıldız+MW kapalı ≈ 73–81 %, çekirdek+fotometri ≈ 75–84 %. Disk kapalı (her ışın uzağa gider) ≈ 180 % (jeodezik maliyeti).
 `sinCos` / yerel `sin/cos`: 1.17–1.26×. Gerçek GPU'da ölçülmedi; mobil için `quality:'mobile'`, `performance:'battery'`, `animate:false` bu maliyeti ~2–3× azaltır (κ/N + ölçek).
 
+
+### 9.1 4c önce/sonra (SwiftShader, GÖRECELİ; gürültü ±%30, GPU kuyruğu patlamalı çalışır — mutlak değerlere güvenmeyin)
+**Aşama maliyeti (`perf.mjs`, eşzamanlı, A high, ms/kare):**
+
+| boyut | birleşik (eski) | T+S | yalnız S | yalnız A | A + kompozit (bloom önbellekli) | (A+komp)/(T+S) |
+|---|---|---|---|---|---|---|
+| 160×120 | 136 | 122 | 40 | 3 | 5 | 0.04 |
+| 320×240 | 480 | 432 | 172 | 22 | 16 | 0.04 |
+| 640×480 | 1622 | 1683 | 576 | 41 | 73 | 0.04 |
+
+Eski hatta animasyon karesi = birleşik (+ bloom + kompozit); yeni hatta ≈ %4. Yalnız-gölgelendirme parametresi (Tmax, yıldız…) ≈ %35 (geodezik yok). T+S ≈ birleşik (gürültü içinde). Sürükleme kare başı maliyeti ≈ değişmedi (T+S + ~%4 A); kazanç çözünürlük politikasından (piksel bütçesi, `auto` denetleyici) gelir.
+**Gerçek rAF döngüsü (`perf-frame.mjs`; eski = battery/balanced, iz sürme çözünürlüğü dinamik ölçekle 0.3–0.59'a düşmüş; yeni = auto):**
+
+| senaryo | iPhone 390×844@3 eski | iPhone yeni | masaüstü 1440×900 eski | masaüstü yeni |
+|---|---|---|---|---|
+| (a) durağan: yakınsadıktan sonra 3 s'de çizilen kare / rAF | 0 | 0, `mode:'idle'`, rAF durur | 0 | 0 |
+| (b) animasyon, iz sürme/sn | 1.3–3.0 (her kare tam iz sürme) | **0** | 0.3 | **0** |
+| (b) animasyon kare/sn, iz sürme çözünürlüğü | 1.3–3.0 @ 175×380 (0.07 Mpx) | 0.5–5.5 @ 585×1266 (0.74 Mpx) | 0.0–0.3 @ 850×531 | 0.0–2.0 @ 1440×900 (1.3 Mpx) |
+| (c) sürükleme kare/sn | 3.3 @ 175×380 | 2.6 @ 234×506 | 0.5 @ 850×531 | 0.2 @ 1440×900 (yarı ölçek 720×450) |
+
+Not: yeni hat animasyonda 11× (iPhone) / 2.4× (masaüstü) daha fazla piksel üzerinde, iz sürme yapmadan çalışır; SwiftShader'da A+kompozit+bloom 1.3 Mpx'te bile CPU rasterleştirici için ağırdır (kare/sn düşük görünür), gerçek GPU'da bu geçişler ms mertebesindedir (doğrulanamadı). Sürüklemede masaüstü yeni < eski görünmesi: eski hat dinamik ölçeği 0.59'a indirmişti, yeni denetleyici 6 s içinde yeterli örnek toplayamadı (kare 5–6 s) — gerçek GPU'da kareler ms olduğundan denetleyici hızlı yakınsar (SwiftShader'da doğrulanamaz).
+
 ## 10. CPU'dan farklar ve gerekçeleri (4a, güncel)
 
 1. **Kendi `sinCos`'u** (`trig.glsl`): cihaz `sin/cos`'u kullanılmaz (SwiftShader mutlak hata maks 1.9e-4; `sinCos` ile GPU–E32 medyan Δr 3.9e-4 → 2.8e-6). `{nativeTrig:true}` yerel sürümü açar (yeniden üretmek için `trig-probe.mjs`).

@@ -72,9 +72,13 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     h('button.btn.tip-ok', { type: 'button', onClick: () => hideHint() }, S.tip.ok));
   let tipGone = readPref(PREF_KEYS.tipSeen) === '1';
   if (tipGone) tipEl.hidden = true;
+  const tipWaiters = [];
+  /** İlk açılış ipucu kapanınca (veya zaten kapalıysa hemen) cb çağrılır: iOS "Ana Ekrana Ekle" şeridi ipucuyla üst üste binmesin. */
+  const whenTipGone = (cb) => { if (tipGone) cb(); else tipWaiters.push(cb); };
   function hideHint() {
     if (tipGone) return;
     tipGone = true;
+    tipWaiters.splice(0).forEach((cb) => cb());
     writePref(PREF_KEYS.tipSeen, '1');
     tipEl.classList.add('gone');
     setTimeout(() => { tipEl.hidden = true; }, 400);
@@ -457,6 +461,7 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     applyScene,
     getScene: () => state.scene,
     scenes: SCENES,
+    whenTipGone,
     setLabels: (v) => { infoCard.setLabels(v); labels.setEnabled(v); },
     labels,
     hasAuto,

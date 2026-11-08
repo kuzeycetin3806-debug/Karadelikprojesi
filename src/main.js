@@ -37,9 +37,10 @@ if (renderer) {
     onOfflineReady: () => shell.banner({ id: 'banner-offline', text: S.app.offlineReady, icn: ICONS.download, actions: [[S.app.close, null, false]] }),
   });
   if (shouldShowIosHint()) {
-    setTimeout(() => shell.banner({
+    // Önce kullanım ipucu; kapanınca (ya da zaten görülmüşse) 4 sn sonra iOS "Ana Ekrana Ekle" şeridi: ikisi aynı anda görünmez.
+    ui.whenTipGone(() => setTimeout(() => shell.banner({
       id: 'banner-ios', text: S.app.ios.text, icn: ICONS.share,
       actions: [[S.app.ios.dismiss, dismissIosHint, true]],
-    }), 4000);
+    }), 4000));
   }
 }

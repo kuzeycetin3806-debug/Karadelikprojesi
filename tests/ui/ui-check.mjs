@@ -603,6 +603,10 @@ async function shellChecks() {
   {
     const r = await rawPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1', viewport: { width: 375, height: 812 }, hasTouch: true, isMobile: true });
     await r.page.goto(url, { waitUntil: 'load' });
+    await r.page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
+    await new Promise((res) => setTimeout(res, 5200));
+    check('iOS: kullanım ipucu açıkken “Ana Ekrana Ekle” şeridi görünmez (üst üste binmez)', (await r.page.isVisible('.tip')) && (await r.page.$('#banner-ios')) === null);
+    await r.page.click('.tip-ok');
     await r.page.waitForSelector('#banner-ios', { timeout: 60000 });
     check('iOS Safari: "Ana Ekrana Ekle" ipucu görünür', /Ana Ekrana Ekle/.test(await r.page.textContent('#banner-ios')));
     await r.page.screenshot({ path: path.join(PWA_OUT, '375-ios-ipucu.png') });
