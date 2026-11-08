@@ -251,8 +251,8 @@ export const S = {
       {
         id: 'hosting', title: 'Barındırma',
         blocks: [
-          ['p', 'Uygulama GitHub Pages üzerinde barındırılır. Siteyi açtığınızda GitHub, kendi sunucu günlüklerinde IP adresi ve tarayıcı bilgisi gibi teknik verileri işleyebilir. Bu işleme GitHub’ın sorumluluğundadır ve GitHub Gizlilik Bildirimi’ne tabidir.'],
-          ['links', [['GitHub Genel Gizlilik Bildirimi', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement']]],
+          ['p', 'Uygulama iki adreste yayımlanır: GitHub Pages ve Netlify. Siteyi açtığınızda, hangi adresi kullanıyorsanız o barındırma sağlayıcısı (GitHub veya Netlify) kendi sunucu günlüklerinde IP adresi ve tarayıcı bilgisi gibi teknik verileri işleyebilir. Bu işleme ilgili sağlayıcının sorumluluğundadır ve onun gizlilik bildirimine tabidir.'],
+          ['links', [['GitHub Genel Gizlilik Bildirimi', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement'], ['Netlify Gizlilik Politikası', 'https://www.netlify.com/privacy/']]],
         ],
       },
       {
@@ -284,11 +284,11 @@ export const S = {
           'Local storage (on your device only): karadelik.uiMode (Basic/Advanced panel choice), karadelik.tipSeen and karadelik.iosHintDismissed (dismissed tips).',
           'Offline cache: a service worker caches only the app files so the app works offline.',
           'Screenshots are created and saved on your device only; nothing is uploaded.',
-          'Hosting: GitHub Pages. GitHub may process technical data such as your IP address in its server logs, under the GitHub General Privacy Statement.',
+          'Hosting: GitHub Pages and Netlify. Whichever address you use, that hosting provider (GitHub or Netlify) may process technical data such as your IP address in its server logs, under its own privacy policy.',
           'Children: no personal data is collected from anyone, including children.',
         ]],
         ['p', 'Effective date: 7 November 2026. Responsible: Kuzey Çetin. Contact: via the GitHub repository (no email address is published).'],
-        ['links', [['GitHub repository', 'https://github.com/kuzeycetin3806-debug/Karadelikprojesi'], ['GitHub General Privacy Statement', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement']]],
+        ['links', [['GitHub repository', 'https://github.com/kuzeycetin3806-debug/Karadelikprojesi'], ['GitHub General Privacy Statement', 'https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement'], ['Netlify Privacy Policy', 'https://www.netlify.com/privacy/']]],
       ],
     },
   },
