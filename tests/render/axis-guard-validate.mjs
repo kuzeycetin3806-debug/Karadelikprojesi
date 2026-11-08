@@ -26,11 +26,14 @@ import { createCamera } from '../../src/math/camera.js';
 import { traceRay, recommendedGpuBudget } from '../../src/math/raytracer.js';
 import { startHarness } from './harness.mjs';
 import { checkAxisKappa } from './guard-assert.mjs';
+import { DEFAULT_PARAMS } from '../../src/render/params.js';
 
 const deg = (d) => (d * Math.PI) / 180;
 const argv = Object.fromEntries(process.argv.slice(2).map((s) => { const m = s.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [s, true]; }));
 const [GW0, GH0] = String(argv.grid ?? '96x72').split('x').map(Number);
 const R_OUT = 20, R_ESC = 300, HALF_HEIGHT = 14;
+const STEP_RULE = String(argv.steprule ?? DEFAULT_PARAMS.stepRule); // 4c: GPU adım kuralı (R64 referansı adım kuralından bağımsız)
+console.log(`Adım kuralı: GPU stepRule='${STEP_RULE}'`);
 const SETUPS = [
   { name: 'A a=0.9 θ75° r50', a: 0.9, th: 75, rCam: 50 },
   { name: 'B a=0.998 θ60° r50', a: 0.998, th: 60, rCam: 50 },
@@ -82,7 +85,7 @@ try {
       for (let i = 0; defEqOn && i < on.length; i++) if (def[i] !== on[i] && !(Number.isNaN(def[i]) && Number.isNaN(on[i]))) defEqOn = false;
       return { off, on, kOff, kOn, kDef, defEqOn, gpAxisGuard: r.getParams().axisGuard };
     }, {
-      params: { a: S.a, thetaCam: th, rCam: S.rCam, phiCam: 0, fovY: (fovY * 180) / Math.PI, diskIn: 'isco', diskOut: R_OUT, prograde, quality: 'high', maxDiskHits: 1, analyticFate: true, rEscape: R_ESC, planeGuard: true },
+      params: { a: S.a, thetaCam: th, rCam: S.rCam, phiCam: 0, fovY: (fovY * 180) / Math.PI, diskIn: 'isco', diskOut: R_OUT, prograde, quality: 'high', maxDiskHits: 1, analyticFate: true, rEscape: R_ESC, planeGuard: true, stepRule: STEP_RULE },
       w: GW, h: GH,
     });
     for (const m of checkAxisKappa({ gpuOn: raw.kOn, gpuOff: raw.kOff, gpuParamsAxisGuard: raw.gpAxisGuard })) fails.push(`${S.name}: κ_a: ${m}`);

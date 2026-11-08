@@ -29,6 +29,7 @@ import { createCamera } from '../../src/math/camera.js';
 import { traceRay, recommendedGpuBudget } from '../../src/math/raytracer.js';
 import { startHarness } from './harness.mjs';
 import { checkAxisKappa } from './guard-assert.mjs';
+import { DEFAULT_PARAMS } from '../../src/render/params.js';
 
 const deg = (d) => (d * Math.PI) / 180;
 
@@ -40,6 +41,8 @@ const argv = Object.fromEntries(
   }),
 );
 const [GW0, GH0] = String(argv.grid ?? '96x72').split('x').map(Number);
+// 4c: adım kuralı (GPU params.stepRule ↔ CPU E32 stepRule AYNI olmalı; R64 adım kuralından bağımsızdır). Varsayılan = renderer varsayılanı.
+const STEP_RULE = String(argv.steprule ?? DEFAULT_PARAMS.stepRule);
 if (!(GW0 >= 64 && GH0 >= 48)) throw new Error('ızgara en az 64x48 olmalı');
 
 // ---------------------------------------------------------------- kurulumlar
@@ -209,6 +212,7 @@ try {
   });
   console.log(`GPU: ${info.renderer} | ${info.version} | EXT_color_buffer_float=${info.floatRT} | MAX_DRAW_BUFFERS=${info.maxDrawBuffers}`);
   console.log(`Izgara ${GW0}x${GH0} (tek-ızgara kurulumlarda +1) · κ=0.05 N=recommendedGpuBudget · r_out=${R_OUT} · r_esc=${R_ESC} · maxDiskHits=1 (aksi belirtilmedikçe)`);
+  console.log(`Adım kuralı: GPU stepRule='${STEP_RULE}' ↔ CPU E32 stepRule='${STEP_RULE}'`);
   console.log('Üretim yolu: renderDebug seçeneksiz (eksen koruması AÇIK) ↔ E32 varsayılan (koruma AÇIK) ↔ R64; ayrıca 4a portu {axisGuard:false} ↔ E32 {axisGuard:false}\n');
 
   for (const S of SETUPS_RUN) {
@@ -226,7 +230,7 @@ try {
     // --- GPU: üretim yolu (seçeneksiz) + 4a portu ({axisGuard:false})
     const baseParams = {
       a: S.a, thetaCam: th, rCam: S.rCam, phiCam: 0, fovY: (fovY * 180) / Math.PI, diskIn: 'isco', diskOut: R_OUT,
-      prograde, quality: mobile ? 'mobile' : 'high', maxDiskHits, analyticFate: true, rEscape: R_ESC, planeGuard: true,
+      prograde, quality: mobile ? 'mobile' : 'high', maxDiskHits, analyticFate: true, rEscape: R_ESC, planeGuard: true, stepRule: STEP_RULE,
       ...(argv['selftest-noguard'] ? { axisGuard: false } : {}), // YALNIZ öz-sınama: üretim yolu korumasız ⇒ betik BAŞARISIZ olmalı
     };
     const tg = Date.now();
@@ -272,7 +276,7 @@ try {
     // eksen koruması seçeneği VERİLMEZ ⇒ CPU varsayılanı (açık); E32-4a: {axisGuard:false}
     const e32Opts = {
       integrator: 'rk4', precision: 'f32', form: 'hamilton', kappa: budget.kappa, maxSteps: budget.maxSteps,
-      crossing: 'hermite', rEscape: R_ESC, maxDiskHits,
+      crossing: 'hermite', rEscape: R_ESC, maxDiskHits, stepRule: STEP_RULE,
     };
     const e32OffOpts = { ...e32Opts, axisGuard: false };
     const r64Opts = { rtol: 1e-10, atol: 1e-12, maxDiskHits, rEscape: R_ESC };

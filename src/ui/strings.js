@@ -3,16 +3,110 @@
 
 export const LANG = 'tr';
 
+// ---- SAHNELER: her sahnenin başlığı, sade açıklaması ve "Neye bakmalı?" maddeleri (tek kaynak).
+// Parametreler src/ui/scenes.js'te. Bilimsel iddialar bu dosyada toplanır (fizik denetimi için).
+// Sayılar src/physics fonksiyonlarıyla ui-check.mjs'te doğrulanır (r_isco, η, 3√3, …).
+const SCENE_TEXT = {
+  schwarzschild: {
+    short: 'Dönmeyen',
+    title: 'Dönmeyen kara delik — yandan bakış',
+    text: 'Hiç dönmeyen (a = 0) bir kara delik. Gölgesi tam bir dairedir ve yarıçapı yaklaşık 5,2 M’dir; olay ufku ise 2 M’dir. Diske neredeyse yandan baktığımız için disk ince bir çizgi gibi görünür; yine de deliğin arkasında kalan kısmın ışığı bükülerek gölgenin üstünden aşar.',
+    look: ['Gölgenin üzerinden kemer gibi aşan parlak yay: diskin deliğin arkasındaki kısmı.', 'Gölgenin kenarındaki çok ince parlak halka: foton halkası.', 'Diskin sol yanı sağından daha parlak: o yan bize doğru geliyor (Doppler).'],
+  },
+  kerr09: {
+    short: 'Hızlı dönen',
+    title: 'Hızlı dönen kara delik (a = 0,9)',
+    text: 'Delik, olabilecek en yüksek dönüş hızının yüzde 90’ı ile dönüyor. Çevresindeki uzay-zaman da dönmeye sürüklenir; bu yüzden diskin iç kenarı, dönmeyen delikteki 6 M yerine yaklaşık 2,3 M’ye kadar yaklaşır ve disk daha sıcak, daha parlak olur. Gölge hafifçe yassılaşır ve bir yana kayar.',
+    look: ['Gölgenin sol kenarı düzleşmiş: gölge tam daire değil.', 'Disk daha içeriye uzanıyor ve iç kenarı çok parlak.', 'Sol taraf (bize doğru gelen yan) belirgin biçimde daha parlak.'],
+  },
+  extreme: {
+    short: 'Çok hızlı',
+    title: 'Neredeyse en hızlı dönen kara delik (a = 0,998)',
+    text: 'Kuramın izin verdiği en yüksek dönüşe (a = 1) çok yakın; bu uygulamada üst sınır bu değerdir. Diskin iç kenarı yaklaşık 1,2 M’ye kadar iner. Gaz deliğe düşerken durgun kütle enerjisinin yaklaşık yüzde 32’si ışığa dönüşebilir (dönmeyen delikte yaklaşık yüzde 5,7).',
+    look: ['Gölgenin belirgin biçimde yassılaşmış ve kaymış hâli.', 'Diskin iç kenarı gölgeye çok yakın.', 'İki yan arasındaki parlaklık farkı büyük.'],
+  },
+  faceOn: {
+    short: 'Yukarıdan',
+    title: 'Yukarıdan bakış — yüz yüze',
+    text: 'Kamera deliğin dönme ekseni yakınında, diske tepeden bakıyor (eğim yaklaşık 10°). Disk neredeyse tam bir halka, gölge neredeyse bir daire olarak görünür. Disk bize doğru ya da bizden uzağa hareket etmediği için Doppler parlaklık farkı yandan bakışa göre çok daha küçüktür.',
+    look: ['Gölge neredeyse daire.', 'Işıma halka boyunca daha düzgün dağılmış: Doppler farkı küçük.', 'Gölgeyi çevreleyen ince parlak çizgi: foton halkası.'],
+  },
+  tilt17: {
+    short: 'Hafif eğik',
+    title: 'Hafif eğik bakış (yaklaşık 17°)',
+    text: 'Deliğe eksenine yakın, yaklaşık 17° eğimle bakıyoruz. Disk bir halka gibi görünür ve bir yanı daha parlaktır. Olay Ufku Teleskobu (EHT) çalışmalarında M87* için eksenin görüş doğrultusuna yaklaşık 17° eğimli olduğu tahmin edilir; bu sahne yalnızca benzer bir bakış geometrisini gösterir, M87* görüntüsü değildir.',
+    look: ['Halkanın sol yanı sağından daha parlak.', 'Gölge hâlâ neredeyse yuvarlak, ama hafifçe kaymış.', 'Gölgenin kenarında parlak foton halkası.'],
+  },
+  retro: {
+    short: 'Ters dönen',
+    title: 'Ters dönen disk (retrograd)',
+    text: 'Disk, deliğin dönüşünün tersi yönünde dönüyor. Bu durumda diskin en içteki kararlı yörüngesi (ISCO) uzaklaşır: a = 0,9 için yaklaşık 8,7 M (diskin delikle aynı yönde döndüğü durumda 2,3 M). Disk deliğe yaklaşamaz, daha az ışır (verim yaklaşık yüzde 3,9) ve ortadaki boşluk geniş görünür.',
+    look: ['Diskin iç kenarı gölgeden belirgin biçimde uzakta.', 'Parlak taraf bu kez sağda: bize doğru gelen yan değişti.', 'Gölgenin şekli diskin yönüne bağlı değildir; yalnız deliğin dönüşüne ve bakış açısına bağlıdır.'],
+  },
+  close: {
+    short: 'Çok yakın',
+    title: 'Çok yakından (12 M)',
+    text: 'Kamera deliğin yalnızca 12 M uzağında ve geniş açılı. Bu mesafede ışığın bükülmesi çok daha belirgin: gölge görüş alanının büyük bölümünü kaplar ve arka plandaki yıldızlar gölgenin çevresinde uzayıp bükülür. Etiketler bu mesafede gizlenir, çünkü konumları yalnızca uzaktan bakış için hesaplanabilir.',
+    look: ['Gölge çok büyük görünüyor.', 'Gölgenin çevresinde yıldız alanı belirgin biçimde bükülmüş.', 'Disk görüş alanına sığmıyor; kenarları ekran dışında kalabilir.'],
+  },
+  below: {
+    short: 'Alttan',
+    title: 'Diskin altından bakış',
+    text: 'Kamera disk düzleminin altında (eğim 115°). Kara delik ve disk ekvator düzlemine göre simetrik olduğundan bu görüntü, üstten 65° ile bakışın alt-üst çevrilmiş hâlidir. Yani deliğin arkasından bükülen yay artık gölgenin altında, diskin yakın kısmı ise üstünde görünür.',
+    look: ['Merceklenmiş arka yay gölgenin altında.', 'Diskin yakın kısmı gölgenin üstünden geçiyor.', 'Dönüş yönü değişmedi: bize doğru gelen (parlak) yan yine solda.'],
+  },
+};
+const SCENE_ORDER = ['schwarzschild', 'kerr09', 'extreme', 'faceOn', 'tilt17', 'retro', 'close', 'below'];
+const SCENE_GUIDE = SCENE_ORDER.map((id) => [SCENE_TEXT[id].title, SCENE_TEXT[id].text]);
+
 export const S = {
   appTitle: 'Kara Delik Simülasyonu',
   appSubtitle: 'Kerr geometrisi · ışın izleme',
   canvasLabel: 'Kara delik sahnesi. Oklar: yörünge, artı/eksi: yakınlaştırma, Home: kamerayı sıfırla.',
   hint: 'Sürükle: yörünge · Tekerlek / iki parmak: yakınlaştır · Çift tıkla: sıfırla',
 
+  // ---- sahneler, bilgi kartı, etiketler
+  scenes: SCENE_TEXT,
+  sceneOrder: SCENE_ORDER,
+  sceneCustom: {
+    short: 'Özel',
+    title: 'Özel görünüm',
+    text: 'Ayarlardan seçtiğiniz değerlerle oluşan görünüm. Aşağıdaki sayılar şu anki dönüş hızınıza ve bakış açınıza göre hesaplanır. Hazır bir görünüme dönmek için alttaki kartlardan birini seçin.',
+    look: ['Gölgenin ve diskin biçimi dönüş hızına ve bakış açısına göre değişir.', 'Bize doğru gelen taraf daha parlaktır.', 'Etiketleri açarak bu özellikleri ekranda işaretleyebilirsiniz.'],
+  },
+  sceneStrip: { label: 'Sahneler', hint: 'Sahne seç' },
+  infoCard: {
+    label: 'Sahne açıklaması',
+    close: 'Bilgi kartını kapat',
+    look: 'Neye bakmalı?',
+    numbers: 'Bu görünümün sayıları',
+    chips: { rPlus: 'Olay ufku', rIsco: 'Diskin iç kenarı (ISCO)', eta: 'Işınım verimi', shadowW: 'Gölge genişliği' },
+    chipTips: {
+      rPlus: 'Olay ufkunun yarıçapı r₊ (M biriminde): geri dönüşü olmayan sınır.',
+      rIsco: 'En içteki kararlı dairesel yörünge: ince diskin iç kenarı.',
+      eta: 'Diske düşen maddenin durgun kütle enerjisinin ışığa dönüşen kesri.',
+      shadowW: 'Gölgenin yatay genişliği (deliğe uzaktan bakan gözlemci için, M biriminde).',
+    },
+    labelsTitle: 'Etiketler',
+    labelsHelp: 'Gölgeyi, foton halkasını, diskin bükülmüş arka tarafını ve Doppler ile parlayan yanı ekranda işaretler.',
+    whatIs: 'Kara delik nedir?',
+  },
+  labels: {
+    shadow: 'Gölge',
+    ring: 'Foton halkası',
+    lens: 'Diskin arka tarafı (ışık bükülmüş)',
+    dopplerPro: 'Bize doğru gelen taraf — daha parlak (Doppler)',
+    dopplerRetro: 'Bize doğru gelen taraf — daha parlak (Doppler)',
+    near: 'Etiketler uzaktan bakışta (r ≥ 15 M) gösterilir; bu kadar yakında konumları güvenilir değildir.',
+    approx: 'Konumlar deliğe uzaktan bakan gözlemci için yaklaşıktır.',
+  },
+
   toolbar: {
+    info: 'Bilgi',
+    infoLabel: 'Bilgi: sahne açıklaması ve etiketler',
     panelOpen: 'Ayarlar',
-    panelClose: 'Paneli kapat',
-    panelToggleLabel: 'Kontrol panelini aç/kapat',
+    panelClose: 'Ayarları kapat',
+    panelToggleLabel: 'Ayarlar panelini aç/kapat',
     resetCamera: 'Kamerayı sıfırla',
     screenshot: 'Ekran görüntüsü indir',
     fullscreen: 'Tam ekran',
@@ -21,9 +115,10 @@ export const S = {
     about: 'Hakkında',
     privacy: 'Gizlilik politikası',
     install: 'Uygulamayı yükle',
-    more: 'Diğer işlemler',
-    menuLabel: 'Diğer işlemler menüsü',
+    more: 'Menü',
+    menuLabel: 'Uygulama menüsü',
     utilLabel: 'Uygulama araçları',
+    barLabel: 'Bilgi',
   },
 
   app: {
@@ -57,7 +152,7 @@ export const S = {
   //              · ['note', metin] · ['links', [[etiket, adres]…]]
   guide: {
     title: 'Kullanım kılavuzu',
-    lead: 'Dönen (Kerr) bir kara deliğin çevresinde ışığın nasıl büküldüğünü gerçek zamanlı keşfedin.',
+    lead: 'Dönen bir kara deliğin çevresinde ışığın nasıl büküldüğünü gerçek zamanlı keşfedin. Alttaki Sahneler ile farklı görünümleri deneyin.',
     toc: 'Bölümler',
     openFull: 'Tam sayfa aç',
     backToApp: 'Uygulamaya dön',
@@ -68,56 +163,67 @@ export const S = {
         blocks: [
           ['p', 'Bu uygulama, bir kara deliğin çevresindeki ışığın izlediği yolu her piksel için geriye doğru hesaplayarak (ışın izleme) görüntü üretir. Hesap cihazınızın ekran kartında yapılır; internet bağlantısı gerekmez.'],
           ['ul', [
-            'Sahneyi sürükleyerek kara deliğin çevresinde dönün; iki parmakla (veya fare tekerleğiyle) yakınlaşın.',
-            'Ayarlar düğmesiyle paneli açın ve bir hazır ayar seçin.',
-            'İsterseniz Spin, Eğim, Uzaklık ve Disk sıcaklığı kaydırıcılarıyla görüntüyü değiştirin.',
-            'Kamera düğmesi ekran görüntüsü kaydeder; “…” menüsünde Kılavuz, Hakkında, Gizlilik ve Tam ekran bulunur.',
+            'Ekranın altındaki kartlardan bir sahne seçin: her biri kara deliğe farklı bir koşulda bakar. Kartları yana kaydırarak hepsini görebilirsiniz.',
+            'Sol üstteki “i” düğmesi seçili sahneyi anlatır ve “Neye bakmalı?” ipuçlarını verir. Aynı yerden “Etiketler”i açarak gölge, foton halkası ve Doppler tarafını ekranda işaretleyebilirsiniz.',
+            'Sağ üstteki “…” menüsünde Ayarlar, Ekran görüntüsü, Kılavuz, Hakkında, Gizlilik, Tam ekran ve Uygulamayı yükle bulunur.',
+            'Sahneyi sürükleyerek kara deliğin çevresinde dönün; iki parmakla (veya fare tekerleğiyle) yakınlaşın; çift dokunarak sahnenin başlangıç görünümüne dönün.',
           ]],
+        ],
+      },
+      {
+        id: 'whatis', title: 'Kara delik nedir?',
+        blocks: [
+          ['p', 'Kara delik, kütleçekiminin o kadar güçlü olduğu bir bölgedir ki belli bir sınırın içinden ışık bile dışarı çıkamaz. Bu sınıra olay ufku denir. Dönmeyen bir kara deliğin ufku, kütlesine bağlı olarak 2GM/c² yarıçaplı bir küredir: Güneş kütlesi için yaklaşık 3 km. Bu uygulamada uzunluklar M birimiyle verilir (M = GM/c²); bu birimde dönmeyen deliğin ufkunun yarıçapı 2 M’dir.'],
+          ['dl', [
+            ['Işığın bükülmesi (merceklenme)', 'Kütleçekimi uzay-zamanı büker; ışık da bu eğri uzayda düz çizgi izlemez. Bu yüzden deliğin arkasındaki disk ve yıldızlar, delikle birlikte gözümüze doğru bükülerek görünür.'],
+            ['Gölge', 'Ufkun kendisini göremezsiniz; gördüğünüz karanlık daire gölgedir. Işık bükülüp deliğe düştüğü için gölge ufuktan daha büyük görünür: dönmeyen delikte gölgenin yarıçapı 3√3 M ≈ 5,2 M, yani ufkun (2 M) yaklaşık 2,6 katıdır. Bu değer, deliğe uzaktan bakan gözlemci içindir.'],
+            ['Foton halkası', 'Gölgenin kenarında ışık deliğin çevresinde bir veya birkaç tur dolanıp gözümüze ulaşır ve ince, parlak bir halka oluşturur. Dönmeyen delikte ışığın dairesel yörüngede dolanabildiği yarıçap 3 M’dir.'],
+            ['ISCO (diskin iç kenarı)', 'Gaz deliğin çevresinde dairesel yörüngelerde döner; ama belli bir yarıçaptan içeride kararlı dairesel yörünge yoktur. Bu sınıra ISCO (en içteki kararlı dairesel yörünge) denir; dönmeyen delikte 6 M’dir. Bu simülasyonda ince disk ISCO’da başlar. Delik hızlı döndükçe ve disk onunla aynı yönde dönerse ISCO deliğe yaklaşır (a = 0,998 için yaklaşık 1,2 M).'],
+            ['Doppler etkisi', 'Disk dönerken bir yanı bize doğru gelir, öbür yanı bizden uzaklaşır. Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsı görünür.'],
+            ['Kütleçekimsel kırmızıya kayma', 'Işık kütleçekim kuyusundan çıkarken enerji kaybeder. Deliğe yakın bölgelerden gelen ışık bu yüzden daha kırmızı ve daha sönüktür.'],
+          ]],
+          ['note', 'Önemli: Bu bir fotoğraf değil, fizik denklemleriyle hesaplanan bir simülasyondur ve disk modeli ince ve soğuktur; gerçek gözlemlerdeki sıcak, kalın gaz akışları farklı görünür. Olay ufkunun içi, ışık çıkamadığı için hiçbir şekilde görünmez.'],
+        ],
+      },
+      {
+        id: 'scenes', title: 'Sahneler ve etiketler',
+        blocks: [
+          ['p', 'Her sahne, kara deliğin dönüşünü, diskin yönünü ve kameranın konumunu birlikte ayarlar. Seçince kamera yumuşakça o görünüme geçer; sonra istediğiniz gibi döndürebilir, ayarlardan değiştirebilirsiniz. Ekrandaki “i” düğmesi sahneyi açıklar.'],
+          ['dl', SCENE_GUIDE],
+          ['p', 'Etiketler: “i” kartındaki Etiketler anahtarı gölgeyi, foton halkasını, diskin bükülmüş arka tarafını ve Doppler ile daha parlak görünen yanı yazıyla işaretler. Konumlar deliğe uzaktan bakan gözlemci için hesaplanır; kamera 15 M’den yakınsa etiketler gizlenir.'],
         ],
       },
       {
         id: 'camera', title: 'Kamerayı kontrol etme',
         blocks: [
           ['h', 'Fare'],
-          ['keys', [['Sürükle', 'Kamerayı kara deliğin çevresinde döndürür (yörünge).'], ['Tekerlek', 'Yakınlaştırır / uzaklaştırır.'], ['Çift tıkla', 'Kamerayı başlangıç konumuna alır.']]],
+          ['keys', [['Sürükle', 'Kamerayı kara deliğin çevresinde döndürür (yörünge).'], ['Tekerlek', 'Yakınlaştırır / uzaklaştırır.'], ['Çift tıkla', 'Kamerayı seçili sahnenin başlangıç konumuna alır.']]],
           ['h', 'Dokunmatik ekran'],
-          ['keys', [['Tek parmak sürükle', 'Yörünge.'], ['İki parmak aç/kıs', 'Yakınlaştır / uzaklaştır.'], ['Çift dokun', 'Kamerayı sıfırlar.']]],
+          ['keys', [['Tek parmak sürükle', 'Yörünge.'], ['İki parmak aç/kıs', 'Yakınlaştır / uzaklaştır.'], ['Çift dokun', 'Kamerayı sıfırlar.'], ['Kart şeridini kaydır', 'Sahneleri gezer (kamerayı oynatmaz).']]],
           ['h', 'Klavye'],
-          ['keys', [['← → ↑ ↓', 'Yörünge (yatay: azimut, dikey: eğim). Önce sahneye odaklanın (Tab).'], ['+  −  (PgUp / PgDn)', 'Yakınlaştır / uzaklaştır.'], ['Home veya 0', 'Kamerayı sıfırla.'], ['?', 'Bu kılavuzun Kontroller bölümünü aç / kapat.'], ['F', 'Tam ekran (tarayıcı destekliyorsa).'], ['Esc', 'Pencereyi, menüyü veya paneli kapat.']]],
-          ['note', 'Kamera yumuşak hareket eder; hızlı bırakırsanız bir süre dönmeye devam eder. Eğim 1°–179° arasındadır.'],
+          ['keys', [['← → ↑ ↓', 'Yörünge (yatay: azimut, dikey: eğim). Önce sahneye odaklanın (Tab).'], ['+  −  (PgUp / PgDn)', 'Yakınlaştır / uzaklaştır.'], ['Home veya 0', 'Kamerayı sıfırla.'], ['?', 'Bu kılavuzun Ayarlar bölümünü aç / kapat.'], ['F', 'Tam ekran (tarayıcı destekliyorsa).'], ['Esc', 'Pencereyi, menüyü, bilgi kartını veya ayarları kapat.']]],
+          ['note', 'Kamera yumuşak hareket eder; hızlı bırakırsanız bir süre dönmeye devam eder. Bakış açısı 1°–179° arasındadır.'],
         ],
       },
       {
-        id: 'presets', title: 'Hazır ayarlar',
+        id: 'controls', title: 'Ayarlar',
         blocks: [
-          ['p', 'Hazır ayarlar tek dokunuşla spin, bakış açısı ve uzaklığı birlikte ayarlar. Diski açık bırakırlar; parlaklık, bloom gibi görüntü ayarlarınıza dokunmazlar.'],
-          ['dl', [
-            ['Schwarzschild yandan', 'Dönmeyen kara delik (a = 0), diske yandan (85°) bakış. Klasik “halka” görünümü.'],
-            ['Kerr a = 0,9', 'Hızlı dönen kara delik, 75° eğim. Diskin iki yanı belirgin biçimde farklı parlar.'],
-            ['Yüksek spin (a = 0,998)', 'Olabilecek en hızlı dönüşe yakın; disk ufka çok yaklaşır, gölge yamulur.'],
-            ['Yüzden bakış', 'Kutuptan (10°) bakış: disk neredeyse tam daire, ortada gölge.'],
-          ]],
-        ],
-      },
-      {
-        id: 'controls', title: 'Kontroller',
-        blocks: [
-          ['p', 'Panelin üstündeki Basit | Gelişmiş anahtarı kontrol sayısını belirler. Seçiminiz bu cihazda hatırlanır. Her kontrolün yanındaki “?” düğmesi kısa bir açıklama gösterir.'],
+          ['p', '“…” menüsünden Ayarlar’ı açın. Üstteki Basit | Gelişmiş anahtarı kontrol sayısını belirler; seçiminiz bu cihazda hatırlanır. Her kontrolün yanındaki “?” düğmesi kısa bir açıklama gösterir.'],
           ['h', 'Basit mod'],
           ['dl', [
-            ['Spin (a)', 'Kara deliğin dönüş hızı, 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe disk içeri yaklaşır ve görüntü asimetrik olur.'],
-            ['Eğim', 'Bakış açınız. 0°’ye yakın: tepeden; 90°’ye yakın: diski yandan görürsünüz.'],
-            ['Uzaklık', 'Kara delikten uzaklığınız. “M” kara deliğin kütlesine bağlı uzunluk birimidir (M = GM/c²). Yakınken ışık çok daha fazla bükülür.'],
-            ['Disk sıcaklığı (Tmax)', 'Diskin en sıcak yerinin sıcaklığı, Kelvin. Düşük: kırmızı-turuncu; yüksek: beyaz-mavimsi.'],
+            ['Dönüş hızı (a)', 'Kara deliğin dönüş hızı, 0 ile 0,998 arası. 0 = dönmüyor. Büyüdükçe disk deliğe yaklaşır ve görüntü asimetrik olur.'],
+            ['Bakış açısı (eğim θ)', 'Kara deliğe hangi açıdan baktığınız. 0°’ye yakın: tepeden; 90°’ye yakın: diski yandan görürsünüz; 90°’den büyük: diskin altından.'],
+            ['Uzaklık (r)', 'Kara delikten uzaklığınız. “M” kara deliğin kütlesine bağlı uzunluk birimidir (M = GM/c²). Yakınken ışık çok daha fazla bükülür.'],
             ['Animasyon', 'Diskin dönüşünü canlandırır. Kapalıyken görüntü durağandır, pil daha az harcanır.'],
           ]],
           ['h', 'Gelişmiş mod'],
-          ['p', 'Gelişmiş modda tüm kontroller ve “Bilimsel bilgi” ekranı görünür. Kontroller kısa rozetlerle işaretlidir: FİZİKSEL (Kerr geodeziklerinden ve Page–Thorne disk modelinden gelir), ESTETİK (görsel hoşluk için; fiziksel öngörü değildir), GÖSTERİM (kamera, ölçek, performans; fiziksel içeriği değiştirmez).'],
+          ['p', 'Gelişmiş modda tüm kontroller, hazır ayarlar ve “Bilimsel bilgi” ekranı görünür. Kontroller kısa rozetlerle işaretlidir: FİZİKSEL (Kerr geodeziklerinden ve Page–Thorne disk modelinden gelir), ESTETİK (görsel hoşluk için; fiziksel öngörü değildir), GÖSTERİM (kamera, ölçek, performans; fiziksel içeriği değiştirmez).'],
           ['dl', [
             ['Disk dönüş yönü', 'Prograd: disk deliğin dönüşüyle aynı yönde. Retrograd: ters yönde (disk iç kenarı uzaklaşır).'],
             ['Azimut', 'Kameranın kara deliğin etrafındaki konumu. Delik eksen simetrik olduğundan görüntüyü yalnızca disk deseni ve gökyüzü yönünde değiştirir.'],
             ['Görüş alanı', 'Kameranın görüş açısı (derece). Fizik değişmez, yalnızca çerçeve.'],
             ['Disk', 'Toplanma diskini açar/kapatır; kapalıyken yalnızca merceklenen gökyüzü görünür.'],
+            ['Disk sıcaklığı (T_max)', 'Diskin en sıcak yerinin sıcaklığı, Kelvin. Düşük: kırmızı-turuncu; yüksek: beyaz-mavimsi.'],
             ['Dış yarıçap', 'Diskin dış kenarı (M). İç kenar her zaman kararlı en iç dairesel yörüngedir (ISCO).'],
             ['Dış kenar yumuşatma', 'Dış kenarda ışımayı yumuşakça söndürür (estetik).'],
             ['Renk düzeltmesi f_col', 'Gözlenen rengin etkin sıcaklığa oranı (yıldız kütleli kara delikler için yaklaşık 1,7).'],
@@ -127,23 +233,22 @@ export const S = {
             ['Bloom ve gücü', 'Parlak yerlerin etrafında saçılan ışık hâlesi (estetik).'],
             ['Türbülans ve genliği', 'Diskte ince ışıma dokusu (estetik; fiziksel bir benzetim değildir).'],
             ['Yıldızlar, Samanyolu', 'Arka plan gökyüzü. Işığın yönü ve renk kayması fiziksel; yıldız sayısı ve dağılımı estetiktir.'],
-            ['Zaman ölçeği', 'Animasyonun hızı (gerçek 1 saniyede ilerleyen simülasyon süresi).'],
-            ['Performans modu', 'Kalite / Dengeli / Pil: çözünürlük ve kare hızı için hazır tercih.'],
+            ['Animasyon hızı', 'Animasyonun hızı (gerçek 1 saniyede ilerleyen simülasyon süresi).'],
+            ['Performans', 'Otomatik: uygulama cihazınızın hızına göre çözünürlüğü kendisi ayarlar. Kalite / Dengeli / Pil: elle seçilen hazır tercihler.'],
             ['Işın izleme kalitesi', 'Yüksek: ince adım, daha doğru kenarlar. Mobil: yaklaşık 2–3 kat hızlı, kenarlarda biraz daha az doğru.'],
-            ['Çözünürlük ölçeği', 'Düşük değer hızlı ama bulanıktır.'],
+            ['Çözünürlük', 'Düşük değer hızlı ama bulanıktır.'],
           ]],
           ['h', 'Bilimsel bilgi ekranı'],
-          ['p', 'Gelişmiş modda, seçtiğiniz spin ve bakış açısı için olay ufku, foton yörüngesi, ISCO, ışınım verimi, gölge boyutu gibi değerler anında hesaplanır (G = c = 1, uzunluk M cinsinden). İsteğe bağlı olarak bir kütle girerseniz (örneğin 10 güneş kütlesi) uzunluklar kilometre olarak da gösterilir.'],
+          ['p', 'Gelişmiş modda, seçtiğiniz dönüş hızı ve bakış açısı için olay ufku, foton yörüngesi, ISCO, ışınım verimi, gölge boyutu gibi değerler anında hesaplanır (G = c = 1, uzunluk M cinsinden). İsteğe bağlı olarak bir kütle girerseniz (örneğin 10 güneş kütlesi) uzunluklar kilometre olarak da gösterilir.'],
         ],
       },
       {
         id: 'seeing', title: 'Ne görüyorsunuz?',
         blocks: [
           ['dl', [
-            ['Gölge', 'Ortadaki karanlık bölge. Kara deliğin ufkuna düşen ışınların geldiği yönlerdir; ufkun kendisinden daha büyüktür. Dönmeyen bir delikte gölgenin yarıçapı yaklaşık 5,2 M (ufuk 2 M).'],
-            ['Foton halkası', 'Gölgenin kenarındaki ince, parlak halka. Işık kara deliğin etrafında bir veya birkaç tur dönüp gözünüze ulaşır; ne kadar çok dolanırsa o kadar ince ve sönük bir halka oluşur.'],
-            ['Merceklenmiş disk', 'Kara deliğin arkasında kalan disk bölümünün ışığı delikle bükülerek üstte ve altta görünür hâle gelir. Bu yüzden yandan bakarken bile diskin “üst kemeri” gölgenin üzerinden aşar.'],
-            ['Doppler parlaması', 'Disk dönerken bir yanı size doğru, diğer yanı sizden uzağa hareket eder. Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Bu yüzden diskin iki yanı eşit parlamaz.'],
+            ['Gölge ve foton halkası', 'Ortadaki karanlık bölge ve kenarındaki ince parlak halka (ayrıntı için “Kara delik nedir?” bölümüne bakın).'],
+            ['Merceklenmiş disk', 'Kara deliğin arkasında kalan disk bölümünün ışığı delikle bükülerek gölgenin üstünde (altından bakınca altında) görünür hâle gelir. Bu yüzden yandan bakarken bile diskin “arka kemeri” gölgenin üzerinden aşar.'],
+            ['Doppler parlaması', 'Yaklaşan taraf daha parlak ve mavimsi, uzaklaşan taraf daha sönük ve kırmızımsıdır. Diskin dönüşü deliğin dönüşüyle aynı yöndeyse (prograd) bu bakışla yaklaşan taraf solda olur; ters yönde dönüyorsa sağda.'],
             ['Kırmızıya kayma', 'Kütleçekimi kuyusundan çıkan ışık enerji kaybeder: ufka yakın bölgelerden gelen ışık daha kırmızı ve sönüktür. Doppler etkisiyle birlikte rengi ve parlaklığı belirleyen toplam “g faktörü”nü oluşturur.'],
             ['Spin etkisi', 'Dönen deliklerde disk iç kenarı (ISCO) deliğe daha çok yaklaşır, disk daha sıcak ve parlak olur; gölge hafifçe yassılaşıp bir yana kayar.'],
           ]],
@@ -154,8 +259,8 @@ export const S = {
         id: 'performance', title: 'Performans ipuçları',
         blocks: [
           ['ul', [
-            'Telefon ve tabletlerde uygulama otomatik olarak Mobil kalite ve Pil modunu seçer; ısınma ve pil tüketimi azalır.',
-            'Görüntü takılıyorsa Gelişmiş modda Çözünürlük ölçeğini düşürün veya Animasyonu kapatın.',
+            'Varsayılan “Otomatik” performans modunda uygulama, cihazınızın hızına göre çözünürlüğü kendisi ayarlar; ısınma ve pil tüketimi azalır.',
+            'Görüntü yine de takılıyorsa Ayarlar → Gelişmiş modda Çözünürlüğü düşürün veya Animasyonu kapatın.',
             'Bloom ve Türbülans kapatılabilir; diğer ayarlar aynı kalır.',
             'Kamerayı hareket ettirirken çözünürlük geçici olarak düşer, durunca netleşir: bu beklenen davranıştır.',
             'iPhone/iPad’de Düşük Güç Modu ve cihaz ısındığında tarayıcı kare hızını kısabilir.',
@@ -180,8 +285,8 @@ export const S = {
         blocks: [
           ['dl', [
             ['“Simülasyon başlatılamadı” / WebGL 2 yok', 'Simülasyon WebGL 2 gerektirir. Güncel bir tarayıcı kullanın (Safari 15+, Chrome, Edge, Firefox), tarayıcı ayarlarında donanım hızlandırmayı açın, pil tasarrufu modunu kapatın ve sayfayı yenileyin.'],
-            ['Görüntü yavaş veya takılıyor', 'Panelde Gelişmiş → Performans modu: Pil; Çözünürlük ölçeğini düşürün; Animasyon ve Bloom’u kapatın.'],
-            ['Siyah ekran', 'Önce kamerayı sıfırlayın (Sıfırla düğmesi). Disk ve yıldızlar kapalıysa sahne gerçekten siyah olabilir: Tüm ayarları sıfırlayın. Sürüyorsa sayfayı yenileyin.'],
+            ['Görüntü yavaş veya takılıyor', '“…” → Ayarlar → Gelişmiş → Performans: Pil; Çözünürlüğü düşürün; Animasyon ve Bloom’u kapatın.'],
+            ['Siyah ekran', 'Önce kamerayı sıfırlayın (çift dokunma veya “…” → Kamerayı sıfırla). Disk ve yıldızlar kapalıysa sahne gerçekten siyah olabilir: Ayarlar’da “Tüm ayarları sıfırla”yı deneyin. Sürüyorsa sayfayı yenileyin.'],
             ['“Grafik bağlamı kayboldu” ekranı', 'Tarayıcı ekran kartını geçici olarak geri aldı. Birkaç saniye bekleyin; gelmezse sayfayı yeniden yükleyin.'],
             ['Eski sürüm görünüyor', 'Uygulamayı tamamen kapatıp yeniden açın veya “Yeni sürüm hazır” bildirimindeki Yenile’ye dokunun.'],
             ['Ekran görüntüsü inmiyor', 'Tarayıcı indirmeye izin vermiyor olabilir. iOS’ta görüntü “Dosyalar” uygulamasına veya indirilenlere kaydedilir.'],
@@ -315,7 +420,7 @@ export const S = {
     openGuide: 'Kullanım kılavuzu',
     openPrivacy: 'Gizlilik politikası',
     installTitle: 'Uygulama olarak kur',
-    installText: 'Chrome/Edge: adres çubuğundaki yükle simgesi veya araç çubuğundaki düğme. iOS/iPadOS Safari: Paylaş → Ana Ekrana Ekle. Kurulduktan sonra çevrimdışı da çalışır.',
+    installText: 'Chrome/Edge: adres çubuğundaki yükle simgesi veya “…” menüsündeki “Uygulamayı yükle”. iOS/iPadOS Safari: Paylaş → Ana Ekrana Ekle. Kurulduktan sonra çevrimdışı da çalışır.',
   },
 
   panel: {
@@ -327,7 +432,7 @@ export const S = {
     modeLabel: 'Panel görünümü',
     modeSimple: 'Basit',
     modeAdvanced: 'Gelişmiş',
-    modeSimpleHint: 'Hazır ayarlar ve dört temel kontrol.',
+    modeSimpleHint: 'Üç kaydırıcı ve animasyon anahtarı.',
     modeAdvancedHint: 'Tüm kontroller ve bilimsel bilgi ekranı.',
   },
 
@@ -335,7 +440,7 @@ export const S = {
     title: 'Nasıl kullanılır?',
     drag: ['Sürükleyin', 'Kara deliğin çevresinde dönün'],
     pinch: ['İki parmakla yakınlaştırın', 'Fare ile tekerlek'],
-    settings: ['Ayarlar', 'Hazır ayarları ve kontrolleri açın'],
+    settings: ['Alttaki kartlar', 'Farklı kara delik görünümlerini seçin'],
     ok: 'Anladım',
     label: 'Kısa kullanım ipucu',
   },
@@ -371,31 +476,31 @@ export const S = {
   },
 
   controls: {
-    a: { label: 'Spin a/M', tip: 'Boyutsuz dönme parametresi a/M. 0 = Schwarzschild. Üst sınır 0,998 (a = 1\'de ISCO ve kırmızıya kayma tanımsızlaşır).' },
+    a: { label: 'Dönüş hızı (a)', tip: 'Boyutsuz dönme parametresi a/M. 0 = Schwarzschild. Üst sınır 0,998 (a = 1\'de ISCO ve kırmızıya kayma tanımsızlaşır).' },
     prograde: { label: 'Disk dönüş yönü', tip: 'Prograd: disk deliğin dönüşüyle aynı yönde; ISCO küçülür ve verim artar. Retrograd: ters yönde (ISCO büyür).', options: { true: 'Prograd', false: 'Retrograd' } },
-    thetaCam: { label: 'Eğim θ', tip: 'Kameranın dönme eksenine göre kutupsal açısı. 0° = kutuptan (yüzden), 90° = disk düzlemi. 89,5°–90,5° bandı dejenere olduğundan atlanır.' },
-    phiCam: { label: 'Azimut φ', tip: 'Kameranın eksen çevresindeki konumu. Eksenel simetri nedeniyle görüntüyü yalnızca disk deseni/gökyüzü yönünde değiştirir.' },
-    rCam: { label: 'Uzaklık r', tip: 'Kameranın Boyer–Lindquist yarıçapı (M cinsinden). En az r₊ + 3 M, en çok 150 M (f32 hassasiyeti).' },
+    thetaCam: { label: 'Bakış açısı (eğim θ)', tip: 'Kameranın dönme eksenine göre kutupsal açısı. 0° = kutuptan (yüzden), 90° = disk düzlemi. 89,5°–90,5° bandı dejenere olduğundan atlanır.' },
+    phiCam: { label: 'Yön (azimut φ)', tip: 'Kameranın eksen çevresindeki konumu. Eksenel simetri nedeniyle görüntüyü yalnızca disk deseni/gökyüzü yönünde değiştirir.' },
+    rCam: { label: 'Uzaklık (r)', tip: 'Kameranın Boyer–Lindquist yarıçapı (M cinsinden). En az r₊ + 3 M, en çok 150 M (f32 hassasiyeti).' },
     fovY: { label: 'Görüş alanı', tip: 'Dikey görüş açısı (derece). Işın izleme projeksiyonudur; fizik değişmez.' },
     disk: { label: 'Disk', tip: 'İnce, opak, Page–Thorne ışıyan toplanma diski. Kapalıysa yalnızca merceklenen gökyüzü görünür.' },
-    Tmax: { label: 'Disk T_max', tip: 'Disk etkin sıcaklığının tepe değeri (Kelvin). T_eff(r) = T_max·τ(r), τ Page–Thorne profilidir. Kütle ve ṁ yerine doğrudan seçilir.' },
-    diskOut: { label: 'Dış yarıçap', tip: 'Diskin dış kenarı (M). İç kenar daima ISCO\'dur (altında Page–Thorne ışıması yoktur). Dış kenar yumuşatması estetiktir.' },
+    Tmax: { label: 'Disk sıcaklığı (T_max)', tip: 'Disk etkin sıcaklığının tepe değeri (Kelvin). T_eff(r) = T_max·τ(r), τ Page–Thorne profilidir. Kütle ve ṁ yerine doğrudan seçilir.' },
+    diskOut: { label: 'Disk dış kenarı', tip: 'Diskin dış kenarı (M). İç kenar daima ISCO\'dur (altında Page–Thorne ışıması yoktur). Dış kenar yumuşatması estetiktir.' },
     diskEdgeFade: { label: 'Dış kenar yumuşatma', tip: 'Diskin dış kenarında, disk genişliğinin bu kesri boyunca ışımayı sönümler (0 = sert kenar). Estetiktir: bu bölgede Page–Thorne ışımasını değiştirir.' },
     fCol: { label: 'Renk düzeltmesi f_col', tip: 'T_renk = f_col·T_eff. Yıldız kütleli kara delikler için ≈ 1,7. Band modunda renk f_col·T sıcaklığına kayar, yüzey parlaklığı f_col⁻⁴ ile seyrelir (parlaklık f_col⁻⁴·Y(f_col·T)/Y(T) kadar değişir); gerekirse pozlamayı artırın.' },
     brightnessMode: { label: 'Parlaklık modu', tip: 'Band: görünür bantta fotometrik (kara cisim ışınımı gözlem bandında). Bolometrik: toplam ışınım, (g·τ)⁴. Renk her ikisinde aynıdır.', options: { band: 'Band', bolometric: 'Bolometrik' } },
     exposure: { label: 'Pozlama', tip: 'HDR radyansın ton eşlemeden önceki ölçeği (EV = log₂). Yalnızca GÖSTERİM (görüntüleme) ölçeğidir: fiziksel radyansı değiştirmez, mutlak parlaklık kalibrasyonu değildir. Ucuzdur, iz sürmeyi yeniden çalıştırmaz.' },
     tonemap: { label: 'Ton eşleme', tip: 'HDR → ekran dönüşümü. “Yok” yalnızca [0,1] kırpar ve fiziksel radyansı olduğu gibi gösterir.', options: { aces: 'ACES', agx: 'AgX', neutral: 'Nötr', none: 'Yok' } },
-    bloom: { label: 'Bloom', tip: 'Parlak bölgelerin saçılan hale efekti. Estetik sonradan işleme.' },
-    bloomStrength: { label: 'Bloom gücü', tip: 'Sahne enerjisinin hale olarak yeniden dağıtılan kesri.' },
-    turbulence: { label: 'Türbülans', tip: 'Diskte ince ölçekli ışıma dokusu. Estetik; MHD simülasyonu değildir.' },
-    turbulenceAmp: { label: 'Türbülans genliği', tip: 'Işıma modülasyonunun şiddeti (0–1).' },
+    bloom: { label: 'Parlama (bloom)', tip: 'Parlak bölgelerin saçılan hale efekti. Estetik sonradan işleme.' },
+    bloomStrength: { label: 'Parlama gücü', tip: 'Sahne enerjisinin hale olarak yeniden dağıtılan kesri.' },
+    turbulence: { label: 'Disk dokusu (türbülans)', tip: 'Diskte ince ölçekli ışıma dokusu. Estetik; MHD simülasyonu değildir.' },
+    turbulenceAmp: { label: 'Doku şiddeti', tip: 'Işıma modülasyonunun şiddeti (0–1).' },
     stars: { label: 'Yıldızlar', tip: 'Arka plan yıldız alanı. Yön eşlemesi, merceklenme ve renk kayması fiziksel; sayı/parlaklık dağılımı estetiktir.' },
     milkyWay: { label: 'Samanyolu', tip: 'Arka plan Samanyolu bandının şiddeti (0 = yok). Şekil ve renk estetiktir.' },
     animate: { label: 'Animasyon', tip: 'Disk deseni yerel Kepler açısal hızıyla akar. Sürekli çizim gerektirir (daha çok pil kullanır).' },
-    timeScale: { label: 'Zaman ölçeği', tip: 'Animasyon hızı: gerçek 1 saniyede ilerleyen simülasyon süresi (M).' },
-    performance: { label: 'Performans modu', tip: 'Etkileşim çözünürlüğü, biriktirilen kare sayısı ve animasyon kare hızı için ön ayar.', options: { quality: 'Kalite', balanced: 'Dengeli', battery: 'Pil' } },
+    timeScale: { label: 'Animasyon hızı', tip: 'Animasyon hızı: gerçek 1 saniyede ilerleyen simülasyon süresi (M).' },
+    performance: { label: 'Performans', tip: 'Otomatik: uygulama cihazın hızına göre çözünürlüğü ve kare hızını kendisi ayarlar. Kalite / Dengeli / Pil: etkileşim çözünürlüğü, biriktirilen kare sayısı ve animasyon kare hızı için sabit ön ayarlar.', options: { auto: 'Otomatik', quality: 'Kalite', balanced: 'Dengeli', battery: 'Pil' } },
     quality: { label: 'Işın izleme kalitesi', tip: 'Yüksek: ince adım (κ = 0,05, 512 adım). Mobil: κ = 0,10, 256 adım (~2–3× hızlı, kenarlarda biraz daha az doğru).', options: { high: 'Yüksek', mobile: 'Mobil' } },
-    resolutionScale: { label: 'Çözünürlük ölçeği', tip: 'Durağan iz sürme çözünürlüğü / tuval çözünürlüğü. Düşük değer hızlıdır, bulanıktır.' },
+    resolutionScale: { label: 'Çözünürlük', tip: 'Durağan iz sürme çözünürlüğü / tuval çözünürlüğü. Düşük değer hızlıdır, bulanıktır.' },
   },
 
   simpleTip: {
@@ -495,6 +600,8 @@ export const S = {
 
   stats: {
     fps: 'Kare hızı',
+    frameMs: 'Kare süresi',
+    adaptive: 'Uyarlama düzeyi',
     trace: 'İz çözünürlüğü',
     canvas: 'Tuval',
     scale: 'Ölçek',

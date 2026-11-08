@@ -1,17 +1,18 @@
-# GPU ışın izleme çekirdeği ve fotogerçekçi görüntü hattı (`src/render/`, `src/shaders/`) — Adım 4a + 4b
+# GPU ışın izleme çekirdeği ve fotogerçekçi görüntü hattı (`src/render/`, `src/shaders/`) — Adım 4a + 4b + 4c (performans / iOS)
 
 Kerr null geodeziklerinin GLSL ES 3.00 (WebGL2) portu (**4a**, CPU referansına piksel piksel doğrulanmış) ve onun üstünde **fiziksel disk ışıması, yıldız alanı ve HDR görüntü hattı (4b)**.
 Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku seçimleri) her yerde ayrıdır: §5 tablosu.
+**4c (kasma/iOS turu):** ertelenmiş gölgelendirme (geodezik bir kez, görünüş her kare), akıllı döngü (durağanda GPU boşta), uyarlamalı kalite denetleyicisi (`performance:'auto'`), iz sürme piksel bütçesi + şeritli iş, iOS/Safari dayanıklılığı: bkz. §6, §9, §14.
 
 | Dosya | İçerik |
 |---|---|
-| `src/render/index.js` | `createBlackHoleRenderer(canvas, opts?)`: sahne/uniform, **iz sürme → bloom → kompozit** hattı, HDR birikim hedefleri, uyarlamalı çözünürlük döngüsü, debug MRT (`renderDebug`, `renderDebugPhoto`) |
+| `src/render/index.js` | `createBlackHoleRenderer(canvas, opts?)`: sahne/uniform, **iz sürme (T) → gölgelendirme (S) → animasyon (A) → bloom → kompozit** hattı (4c: ertelenmiş gölgelendirme), HDR birikim/önbellek hedefleri, akıllı rAF döngüsü + uyarlamalı kalite denetleyicisi, bağlam kaybı/görünürlük/pil, debug MRT (`renderDebug`, `renderDebugPhoto`) |
 | `src/render/params.js` | parametre sözleşmesi: doğrulama/kıstırma, varsayılanlar, kalite + **performans** ön ayarları, **uniform türetimi** (f64 CPU hesapları) |
 | `src/render/photometry.js` | disk fotometrisi CPU tarafı: profil tablosu, kara cisim LUT'u, T>1e5 K serisi, `Y_ref`; GPU hesabının CPU eşleniği `diskPhotometryCPU` (doğrulama). `src/physics/disk.js` fonksiyonlarını **içe aktarır** |
 | `src/render/post.js` | **ESTETİK** sonradan işleme: çok seviyeli bloom (Jimenez) + kompozit (pozlama, ACES/AgX/Neutral, sRGB, dither) |
 | `src/render/controls.js` | GEÇİCİ fare/dokunmatik yörünge kontrolü (kalıcı arayüzü arayüz ajanı yapacak) |
-| `src/shaders/*.glsl`, `index.js` | `common` → `trig` → `geodesic` → `integrator` → `camera` → `crossing` → `escape` → `trace` → `noise` → `photometry` → `turbulence` → `stars` → `shading` → `main.frag`; post: `bloom_down/bloom_up/composite.frag.glsl`. `buildFragmentShader({debug, photo, nativeTrig})` birleştirir |
-| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek; üretim yolu + R64'e mutlak eşikler + uzamsal küme denetimi), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-check.mjs`**, `api-smoke.mjs`, `perf.mjs`, `visual-snapshots.mjs`, `harness.mjs`, `guard-assert.mjs` (GPU κ_a = CPU kappaAxis). **`node --test` ile çalışmaz** |
+| `src/shaders/*.glsl`, `index.js` | `common` → `trig` → `geodesic` → `integrator` → `camera` → `crossing` → `escape` → `trace` → `noise` → `photometry` → `turbulence` → `stars` → `shading` → `main.frag`; post: `bloom_down/bloom_up/composite.frag.glsl`. `buildFragmentShader({debug, photo, nativeTrig, mode})` birleştirir; 4c: `mode:'trace'` (yalnız geodezik → G), `'shade'` (G → radyans), `'anim'` (radyans × türbülans) yalnız gereken parçaları derler (iOS'ta kısa derleme) |
+| `tests/render/` | `gpu-validate.mjs` (CPU↔GPU çekirdek; üretim yolu + R64'e mutlak eşikler + uzamsal küme denetimi; `--steprule=`), **`photometry-validate.mjs`** (T_obs/parlaklık CPU↔GPU), **`axis-guard-validate.mjs`**, **`pipeline-check.mjs`** (T1–T16: akıllı döngü, ertelenmiş hat eşdeğerliği, görünürlük, bağlam kaybı, yedekler), `api-smoke.mjs`, `perf.mjs` (aşama maliyetleri), **`perf-frame.mjs`** (gerçek rAF döngüsünde durağan/animasyon/sürükleme, iPhone + masaüstü), **`steprule-study.mjs`** (full ↔ nodrag, rastgele kameralar, R64), `visual-snapshots.mjs`, `harness.mjs`, `guard-assert.mjs`. **`node --test` ile çalışmaz** |
 
 ## 1. Hat
 
@@ -27,6 +28,14 @@ Fiziksel (doğrusal radyans) ile estetik (bloom, ton eşleme, dağılım/doku se
   KOMPOZİT               ×exposure (GÖSTERİM) + bloom → ton eşleme (ACES | AgX | Neutral | yok) → sRGB OETF → dither     bloom/ton eşleme ESTETİK; exposure/sRGB gösterim
 ```
 `exposure`, bloom ve ton eşleme **yalnız sonradan işlemdir**: bunlar değişince iz sürme yeniden çalışmaz (yalnız bloom + kompozit; `pipeline-check` T1).
+
+**4c — ertelenmiş gölgelendirme (deferred shading).** Yukarıdaki "iz sürme geçişi" üç programa bölünür (aynı fizik, aynı sayılar; `pipeline-check` T10–T12 eşdeğerliği sınar):
+```
+ T  İZ SÜRME      piksel → ZAMO → Kerr geodeziği (RK4) → G (RGBA32F, NEAREST):  disk (r, g_cam, φ, 2) | kaçış (θ_∞, φ_∞, ν_cam/ν_∞, 1) | yakalanma (0, 0, ν_cam/ν_∞, 0)   PAHALI: yalnız kamera/geometri değişince
+ S  GÖLGELENDİRME G → yıldız alanı/Samanyolu + disk fotometrisi [+ türbülans] → doğrusal HDR (RGBA16F), jitter biriktirme                                          ORTA: gölgelendirme parametresi (Tmax, fCol, yıldız, türbülans…) değişince
+ A  ANİMASYON     S çıktısı × türbülans çarpanı(r, φ, zaman) → HDR (disk piksellerinde; diğerleri kopya)                                                                      ÇOK UCUZ: animasyonda her kare
+```
+Animasyonda S çıktısı türbülanssız tutulur (`uTurbDeferred = 1`), A her kare `exp(6·amp·fbm)` çarpanını G'deki (r, φ)'dan uygular ⇒ geodezik ve gökyüzü (yıldızlar) HER KARE yeniden hesaplanmaz. Durağan ya da animasyonsuz durumda türbülans S içinde işlenir ("baked"). `maxDiskHits > 1` (yarı saydam çok vuruş), RGBA32F/RGBA16F render hedefi yoksa ya da `deferred:false` ise eski **birleşik** tek geçiş kullanılır (T+S birleşik; her animasyon karesi tam iz sürme; `getStats().deferred` = false).
 HDR hedefi RGBA16F'tir (yarım float, doğrusal filtrelenebilir; `EXT_color_buffer_float` ya da `EXT_color_buffer_half_float` gerekir). İkisi de yoksa 8-bit **acil yedek** hedef (radyans/8; bloom yok; §9).
 
 ## 2. Algoritma (4a — CPU `src/math/` f32-RK4 yolunun birebir portu)
@@ -54,6 +63,12 @@ E32–R64 uyuşmazlıklarının (39, 9, 44, 47, 10, 2, 36 piksel) **tamamı bu k
 **Debug yolları (`renderDebug`, `renderDebugPhoto`) varsayılanı `params.axisGuard`** (görsel modla AYNI, yani açık: üretim yolu sınanır). 4a'nın korumasız birebir portu yalnız açık `{axisGuard:false}` ile istenir (`gpu-validate` ikinci geçişi). *Düzeltme (denetim 1b7c0de Ö1/Ö2): önceki sürümde debug varsayılanı korumasızdı, CPU E32 ise korumalı olduğundan `gpu-validate` kırmızıya dönmüş ve üretim yolu hiç sınanmamıştı.* GPU'ya gerçekten yüklenen κ_a `getStats().uniforms.axisKappa` ile okunur; doğrulama betikleri bunun CPU `DEFAULT_OPTIONS.kappaAxis` (=0.15) ile eşit olduğunu assert eder (`guard-assert.mjs`).
 κ_a = 0.05 doğruluğu iyileştirmedi, ortalama adımı %8–29 artırdı ⇒ 0.15 seçildi (ort. adım artışı ≈ %1).
 
+### 2.2 Adım kuralı `stepRule` (4c) — `'full'` (varsayılan) ∣ `'nodrag'` (GPU portu hazır, varsayılan YAPILMADI)
+
+`stepRule:'nodrag'` = `src/math/raytracer.js` `stepRule:'nodrag'`un **birebir portu** (`geodesic.glsl` `naturalStep`, `uStepNoDrag`): doğal adımdaki φ' yerine `L/sinθ − a sinθ` (çerçeve sürüklenmesi `aP/Δ` terimi yok; φ döngüsel olduğundan r, θ dinamiğine geri beslenmez). Yalnız **adım boyutunu** değiştirir; denklemler, kesişim, yakalanma/kaçış, analitik fate aynıdır.
+**Neden:** ufuk yakınında `aP/Δ` adımı gereksiz küçültür ⇒ SIMD grubunun en yavaş ışını (en kötü adım sayısı) uzar. Ölçüm (`tests/render/steprule-study.mjs`, 32 rastgele kamera × 80×60 = 153 600 ışın, R64'e karşı): adım ort/p99/en kötü **89.9 / 288 / 512 (full) → 87.1 / 235 / 421 (nodrag)**, bütçesi biten 1182 → 0, R64 sınıf uyuşmazlığı 2 → 0, Δr med/p99 aynı (7.6e-6 / 4.5e-4); SwiftShader GPU süresi 941 → 773 ms (−%18, gürültü ±%15). `axis-guard-validate` (13 kurulum): en kötü adım A 372→306, B 512→238, J 512→378, K 496→353, P2 512→232; ortalama adım −%1…−%7.
+**Karar (koordinatör kuralı: "R64'e karşı mutlak eşikler GEÇİYORSA varsayılan yap"):** `gpu-validate --steprule=nodrag` **BAŞARISIZ** (tek madde): D kurulumunda (a=0.9, θ=π/2 tam disk düzlemi, r=30) iki yatay-komşu piksel `[40,35],[40,36]` R64'te disk (r = 19.9958, dış kenar r_out=20'ye 4.2e-3) iken GPU nodrag'da kaçıyor ⇒ **[UZAMSAL] 5×5 kümelenme** ölçütü kırmızı. Diğer tüm mutlak eşikler (sınıf uyuşmazlığı D'de 2/6912 = %0.03 ≤ %0.1, Δr/ΔgCam/yön p99) ve diğer 12 kurulum GEÇTİ. Neden: kamera tam düzlemdeyken iki simetrik ışın r_out'a 4e-3 uzakta düzleme sığ açıyla iniyor; Hermite+RK4 kesişim hatası (E32 'full' bile 19.9898, hata 6e-3) kenarı geçebiliyor — CPU E32 nodrag da aynı pikselleri aynı yönde çeviriyor (GPU–E32 uyuşmazlığı 0), yani port doğru, çevirme kesme hatası. 32 kameralık geniş örnekte nodrag'da hiç yok. Kural gereği **varsayılan `'full'` bırakıldı**; `setParams({stepRule:'nodrag'})` ile açılır, `node tests/render/gpu-validate.mjs --steprule=nodrag` ve `axis-guard-validate.mjs --steprule=nodrag` çalışır (ikincisi GEÇTİ). Koordinatör eşiği gevşetmeye (ör. [UZAMSAL]'dan r_out/r_isco'ya ≤ 1.5e-2 yakın ışınları muaf tutmak) ya da nodrag'ı yalnız `quality:'mobile'`a bağlamaya karar verirse tek satır: `params.js` `DEFAULT_PARAMS.stepRule`.
+
 ## 3. Parametre sözleşmesi (arayüz ajanı için)
 
 ```js
@@ -61,7 +76,7 @@ import { createBlackHoleRenderer } from './render/index.js';
 const r = createBlackHoleRenderer(canvas, { controls: true /* geçici yörünge kontrolü */, nativeTrig: false });
 r.start();                       // rAF döngüsü; yalnız gerektiğinde çizer (§6); animasyon açıkken sürekli
 r.setParams({ a: 0.9 });         // kısmi güncelleme; kıstırılmış TAM parametre nesnesini döndürür
-r.getParams();  r.getStats();    // getStats: frames, width/height (tuval), traceWidth/Height, scale, accumCount, dynamicScale, interacting, animating, hdr
+r.getParams();  r.getStats();    // getStats: bkz. §3.6 (fps, frameMs, traceScale, mode, adaptiveLevel, …)
 r.renderOnce({ frames: 8 });     // eşzamanlı, tam çözünürlük, 8 jitter'lı kare (anlık görüntü/test)
 await r.renderDebug(64, 48);     // Float32Array (bkz. §4)    await r.renderDebugPhoto(64, 48);   // bkz. §4
 ```
@@ -82,6 +97,7 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | `maxDiskHits` | 1 … 4 | 1 | **1 = opak disk**; >1 ikincil/üçüncül görüntüler yarı saydam (α=0.7, ESTETİK) |
 | `quality` | `'high'` ∣ `'mobile'` | `'high'` | high: κ=0.05, N=512; mobile: κ=0.10, N=256 |
 | `axisGuard` | bool | true | §2.1 (görsel mod **ve** debug yolları varsayılanı) |
+| `stepRule` | `'full'`∣`'nodrag'` | `'full'` | 4c, §2.2 (GPU portu hazır; varsayılan yapılmadı) |
 | `analyticFate`, `rEscape`, `kappa`, `maxSteps`, `planeGuard` | — | true, `'auto'`, null, null, true | gelişmiş/test; `rEscape 'auto'` = **max(300, 2 r_cam, 6 b_max)**, b_max = r_cam·tan(yarı-köşegen açı) (4b: geniş açı + uzak kamerada kaçış yönü hatası ≈ (b/r_esc)³ büyür) |
 
 ### 3.2 Disk ışıması (FİZİKSEL)
@@ -117,24 +133,44 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 ### 3.5 Performans / etkileşim
 | Parametre | Tür / aralık | Varsayılan | Açıklama |
 |---|---|---|---|
-| `performance` | `'quality'`∣`'balanced'`∣`'battery'` | `'balanced'` | ön ayar (aşağı). Ayrıca elle geçersiz kılma alanları: |
+| `performance` | `'auto'`∣`'quality'`∣`'balanced'`∣`'battery'` | **`'auto'`** (4c; eskiden `'balanced'`) | `auto`: cihaz sınıfına (mobil/iOS ↔ masaüstü, UA + `pointer:coarse` + iPadOS `maxTouchPoints`) ve ölçülen kare süresine uyarlanır (§6.3). Ön ayar tablosu aşağıda. Elle geçersiz kılma alanları: |
 | `interactionScale` | null ∣ [0.1, 1] | null | hareket sırasında iz sürme çözünürlük çarpanı |
-| `accumFrames` | null ∣ 1…64 | null | durağan karede biriktirilecek jitter'lı kare sayısı |
-| `animationFps` | null ∣ [5, 120] | null | animasyonda en çok kare/sn |
-| `dynamicResolution` | null ∣ bool | null | kare süresi hedefi tutmazsa ölçeği otomatik düşür |
+| `accumFrames` | null ∣ 1…64 | null | durağan karede biriktirilecek jitter'lı kare sayısı (animasyonda biriktirme YOK) |
+| `animationFps` | null ∣ [5, 120] | null | animasyonda en çok kare/sn (pil azalıyorsa ≤ 20) |
+| `dynamicResolution` | null ∣ bool | null | ölçülen kare süresi hedefi tutmazsa çözünürlüğü basamaklı düşür (§6.3) |
 | `progressive` | bool | true | false: biriktirme yok (accumFrames = 1) |
 | `resolutionScale` | [0.1, 1] | 1 | durağan iz sürme çözünürlüğü / tuval çözünürlüğü. **Tuval tamponu = CSS × min(devicePixelRatio, maxPixelRatio)**; iz sürme ondan ölçekli ve bilinear büyütülür |
-| `maxPixelRatio` | [0.5, 4] | 2 | |
+| `maxPixelRatio` | [0.5, 4] | 2 | tuval tamponu DPR üst sınırı (iPhone @3x ⇒ 2x) |
+| `maxTracePixels` | null ∣ ≥1e4 | null | **4c** durağan iz sürme çözünürlüğü piksel üst sınırı (null = ön ayar/cihaz); aşılırsa ölçek `√(sınır/tuval pikseli)`e iner ve tuvale bilinear büyütülür (**GÖSTERİM**, fizik değişmez) |
+| `maxTickPixels` | null ∣ ≥1e3 | null | **4c** tek rAF karesinde iz sürülecek en çok piksel; aşılırsa iş yatay şeritlere bölünür (kare başına bir şerit; iOS GPU zaman aşımı koruması) |
+| `deferred` | `'auto'`∣bool | `'auto'` | **4c** ertelenmiş gölgelendirme (§1). `false`: birleşik tek geçiş (test/yedek). `maxDiskHits>1` ya da RGBA32F/RGBA16F hedefi yoksa kendiliğinden birleşik |
+| `stepRule` | `'full'`∣`'nodrag'` | `'full'` | §2.2 |
 
-| ön ayar | interactionScale | settleMs | accumFrames | animationFps | dynamicResolution (min–maks ölçek) |
-|---|---|---|---|---|---|
-| `quality` | 0.6 | 150 | 16 | 60 | kapalı |
-| `balanced` | 0.5 | 150 | 8 | 30 | açık (0.35–1) |
-| `battery` | 0.35 | 120 | 4 | 15 | açık (0.3–0.7) |
+| ön ayar | interactionScale | settleMs | accumFrames | animationFps | dynamicResolution (min–maks ölçek) | maxTracePixels | maxTickPixels | bloom |
+|---|---|---|---|---|---|---|---|---|
+| `quality` | 0.6 | 150 | 16 | 60 | kapalı | ∞ | ∞ | tam |
+| `balanced` | 0.5 | 150 | 8 | 30 | açık (0.35–1) | ∞ | 4 Mpx | tam; adaptiveLevel ≥ 3 ya da animasyon kare atlıyorsa ucuz |
+| `battery` | 0.35 | 120 | 4 | 20 (eskiden 15) | açık (0.3–0.7) | 0.8 Mpx | 0.6 Mpx | ucuz |
+| **`auto` masaüstü** | 0.5 | 150 | 8 | 60 | açık (0.3–1) | 8 Mpx | 3 Mpx | tam; adaptiveLevel ≥ 3 ya da kare atlıyorsa ucuz |
+| **`auto` mobil/iOS** | 0.4 | 130 | 4 | 30 | açık (0.25–1) | 1.0 Mpx | 0.5 Mpx | ucuz |
 
-**Arayüz notları.** Tuvale `touch-action:none` `index.html`'de. `controls:false` ile geçici kontrol kapatılıp arayüz kendi `setParams` çağrılarını yapabilir. Kaydırıcı sürüklenirken her `setParams` otomatik "etkileşim" sayılır (düşük çözünürlük →
-150 ms sonra tam çözünürlük → jitter biriktirme). Yalnız `exposure/tonemap/bloom*` anında ucuzdur (iz sürme yok). Mobil/iPad: `quality:'mobile'` + `performance:'battery'` (+ `resolutionScale` 0.5–0.75).
-`animate:false` tamamen durağan, pil dostu kare verir (animasyon kapalıyken GPU boşta).
+**Arayüz notları (4c).** Tuvale `touch-action:none` `index.html`'de. `controls:false` ile geçici kontrol kapatılıp arayüz kendi `setParams` çağrılarını yapabilir. Kamera/geometri parametresi sürüklenirken her `setParams` "etkileşim" sayılır (düşük çözünürlük → `settleMs` sonra durağan çözünürlük → jitter biriktirme → **boşta: hiçbir geçiş çalışmaz, rAF bile durur**). **Yalnız-gölgelendirme** parametreleri (`Tmax, fCol, brightnessMode, turbulence*, diskEdgeFade, stars, starBrightness, milkyWay, animate, diskTime`) ertelenmiş hatta **geodezik yeniden hesaplanmadan** (G önbelleğinden) anında uygulanır, düşük çözünürlüğe düşmez. `exposure/tonemap/bloom*` yalnız bloom + kompozit çalıştırır. `timeScale` hiçbir şey çizdirmez. `performance/resolutionScale/maxTracePixels/animationFps/accumFrames…` değişimi yeniden iz sürme gerektirmez (döngü kendi karşılaştırır; ölçek değiştiyse bir kez yeniden izlenir).
+**Mobil/iPad önerisi:** yalnız `quality:'mobile'` yeterli; `performance` varsayılan `'auto'` bırakılırsa cihaz sınıfı tanınır ve piksel bütçesi/ucuz bloom/ölçek denetleyicisi kendiliğinden devreye girer (eski öneri `performance:'battery'` + `resolutionScale 0.5–0.75` hâlâ geçerli ama artık gerekmez). `animate:false` animasyonu tamamen kapatır (zaten animasyon artık ucuzdur).
+
+### 3.6 `getStats()` sözleşmesi (arayüz için; 4c)
+```js
+r.getStats() → {
+  fps,            // son 1 s içinde sunulan SAHNE karesi/sn (boşta 0)
+  frameMs,        // ardışık sahne kareleri arası ms (EMA); boştayken son etkin değer
+  traceScale,     // son iz sürmenin tuval çözünürlüğüne oranı (= scale)
+  mode,           // 'idle' | 'interacting' | 'animating' | 'refining'   (refining: durağan çözünürlüğe geçiş / jitter biriktirme / şeritli iş)
+  adaptiveLevel,  // 0 = uyarlamalı düşüş yok; k = 2^(−k/6) basamak (denetleyici k kadar çözünürlük düşürdü); dynamicScale = 2^(−(adaptiveLevel+kMin)/6)
+  // geriye uyumlu: frames, width/height (tuval), traceWidth/Height, scale, accumCount, dynamicScale, interacting, animating, hdr, uniforms, lastFrameMs
+  // yeni: presented (kompozit sayısı), traceFrames, shadeFrames, animFrames, bands (son işin şerit sayısı), simTime, gpuMB (önbellek hedefleri), contextRestores,
+  //       deferred (bool), device {mobile, ios, lowPower, safeLevel}, caps {f32rt, f16rt, hdrFloat, deferred, maxTexture}, paused (sayfa gizli), contextLost
+}
+```
+`frames`: sunulan sahne karesi (T / S / A geçişlerinden en az biri çalışan rAF karesi); yalnız bloom/kompozit (`exposure`) sayılmaz (`presented` sayar).
 
 ## 4. Debug modları
 
@@ -162,18 +198,45 @@ Hatalı tür → `TypeError`; bilinmeyen `quality`/`performance`/`tonemap`/`brig
 | **Bloom**, **ton eşleme** (ACES/AgX/Neutral), dither | **ESTETİK** | `bloom_*.frag.glsl`, `composite.frag.glsl` |
 | sRGB OETF (IEC 61966-2-1) | gösterim kodlaması (estetik değil) | `composite.frag.glsl` |
 | Jitter'lı kare biriktirme (ilerleyici AA), uyarlamalı çözünürlük, dinamik ölçek | etkileşim / kalite | `index.js` |
+| **4c** Ertelenmiş gölgelendirme (G önbelleği, T/S/A ayrımı), akıllı döngü, şeritli iş, bayt bütçeli önbellek | **hesaplama organizasyonu** (fizik/estetik çıktı değişmez: `pipeline-check` T10–T13) | `index.js`, `main.frag.glsl` |
+| **4c** İz sürme piksel bütçesi `maxTracePixels` (düşük çözünürlük + bilinear büyütme), uyarlamalı denetleyici | **GÖSTERİM** (görüntüleme çözünürlüğü) | `index.js`, `params.js` |
+| **4c** Animasyonda bloom girdisi = türbülanssız taban (önbellekli), ucuz bloom (4 örnek, 4 seviye) | **ESTETİK** (bloom zaten estetik) | `index.js`, `post.js`, `bloom_down.frag.glsl` |
+| **4c** `stepRule` (nodrag) | **FİZİKSEL** (sayısal; yalnız adım boyutu) | `geodesic.glsl` |
 | `sinCos` (trig.glsl) | **FİZİKSEL** (sayısal kesinlik) | `trig.glsl` |
 
 `bloom:false, tonemap:'none'` ⇒ tuval = sRGB(min(1, exposure·radyans)) (`pipeline-check` T4: maks 1.45/255). Mod B f_col normalizasyonu: Y_ref = Y(T_max) (f_col'dan bağımsız) ⇒ f_col değişimi FİZİKSEL parlaklık değişimini verir; `exposure` yalnız gösterim ölçeğidir.
 
-## 6. Performans ve etkileşim davranışı
+## 6. Performans ve etkileşim davranışı (4c — yeniden yazıldı)
 
-* **Hareket/sürükleme:** iz sürme çözünürlüğü `resolutionScale × interactionScale` (varsayılan 0.5 ⇒ ¼ piksel), tuval tamponu tam çözünürlükte kalır (kompozit bilinear büyütür).
-* **Durunca:** son değişimden `settleMs` (150 ms) sonra tam çözünürlük; ardından **ilerleyici iyileştirme**: `accumFrames` jitter'lı (Halton 2,3) kare ortalaması (doğrusal HDR'de; AA). Kare başına bir rAF, biriktirme bitince GPU boşta.
-* **Animasyon (`animate`+`turbulence`):** sürekli render gerekir; `animationFps` ile sınırlanır (balanced 30). **Biriktirme yok** (hareketli desende hayalet bırakır) ⇒ kenarlar bu modda anti-alias'sızdır; yıldız PSF'i ve türbülans ayak izi süzmesi titreşimi bastırır.
-* **Dinamik çözünürlük:** ardışık animasyon/etkileşim karelerinin süresi (rAF) hedefi (animasyonda 1000/animationFps, etkileşimde 33 ms) %40 aşarsa ölçek ×0.9 (alt sınır ön ayardan), 30 kare rahat geçerse ×1.06. GPU zamanı ölçülmez (rAF aralığı).
-* Boyuta göre **LRU hedef önbelleği** (4 boyut): etkileşim/ölçek geçişlerinde HDR hedefleri ve bloom zinciri yeniden ayrılmaz.
-* Disk animasyonunun **maliyeti**: iz sürme tam yeniden çalışır (türbülans fotometrinin parçası); disk kapalı/animasyon kapalıyken boşta kare yok.
+### 6.1 Kare başına ne çalışır (akıllı döngü)
+| Durum | Çalışan geçişler | GPU |
+|---|---|---|
+| **Durağan** (animasyon kapalı, biriktirme bitti) | hiçbiri; rAF bile durdurulur (`mode:'idle'`, `fps:0`); `setParams`/yeniden boyutlandırma/görünürlük uyandırır | boşta |
+| Sürükleme / geometri değişimi | T+S (düşük çözünürlük: `settleMs` boyunca `resolutionScale·interactionScale·2^(−k/6)`) [+ A] + bloom + kompozit | etkin |
+| Durunca | tek T+S (durağan çözünürlük, gerekirse şeritli) + `accumFrames−1` jitter'lı T+S (ilerleyici AA), sonra boşta | kısa süre |
+| Yalnız gölgelendirme parametresi (Tmax, yıldız, türbülans…) | yalnız S (G önbellekten; geodezik YOK) + bloom + kompozit | kısa |
+| Yalnız `exposure/tonemap/bloom*` | bloom + kompozit | çok kısa |
+| **Animasyon** (varsayılan sahne: `animate` ∧ `turbulence`) | **yalnız A** + kompozit, `animationFps` ile sınırlı; bloom taban görüntüden BİR KEZ hesaplanıp önbelleğe alınır (§6.4). Geodezik/yıldızlar yeniden hesaplanmaz | çok hafif |
+| Animasyon + kamera hareketi | T+S [+A] (düşük çözünürlük) yalnız hareket sürerken | etkin |
+| Sayfa gizli (`document.hidden`) | hiçbiri (rAF iptal; dönüşte zamanlayıcılar sıfırlanır, yeniden çizilir) | boşta |
+
+Animasyonda biriktirme yoktur (hareketli desende hayalet bırakır; türbülans maskesi tek örnekten alınır) ⇒ kenarlar anti-alias'sızdır — **4a/4b ile aynı** davranış. Birleşik/yedek hatta (`getStats().deferred === false`) animasyonun her karesi tam iz sürmedir (eski davranış) ve uyarlamalı denetleyici bu kareler için çözünürlüğü düşürür.
+
+### 6.2 Maliyet analizi (özet; ölçümler §9)
+SwiftShader'da (göreli): eski hatta her animasyon karesi = tam T+S+bloom+kompozit; animasyon varsayılan olarak AÇIK olduğu için **uygulama kullanıcı hiçbir şey yapmasa da sürekli tam çözünürlükte iz sürüyordu** (geodezik ≈ %55–60, fotometri ≈ %20–25, yıldız+Samanyolu ≈ %20–35, bloom+kompozit ≲ %10). Mobil GPU'da bu, termal kısılma ve düşük FPS'nin ana nedeniydi. 4c ile animasyon karesi = A + kompozit (bloom önbellekli).
+
+### 6.3 Uyarlamalı kalite denetleyicisi (`dynamicResolution`; `auto`/`balanced`/`battery`)
+* **Girdi:** GPU süresi ölçülemez (iOS Safari'de `EXT_disjoint_timer_query` yok) ⇒ rAF aralığı (arka basınç altında en yavaş aşamanın süresi). Etkileşimde ardışık kareler arası, birleşik animasyonda son iz sürmeden bu yana geçen süre; hedef 33 ms (≥ 30 FPS hissi; birleşik animasyonda `max(28, 1000/animationFps)`).
+* **Basamak:** çözünürlük `2^(−k/6)` (k tamsayı ⇒ sonlu sayıda iz sürme boyutu ⇒ hedef önbelleği yeniden ayrılmaz). Aşım ⇒ k += ⌈3·log₂(EMA/hedef)⌉ (1…4; maliyet ∝ ölçek²). Sınır `[−6·log₂(maxDynamicScale), −6·log₂(minDynamicScale)]`.
+* **Histerezis / ısınma (thermal):** EMA hedefin %125'ini aşarsa düş (en çok 5 kare/s ile); EMA hedefin %62'sinin altında 40 ardışık kare ⇒ 1 basamak çık. Her düşüşten sonra yukarı çıkma `3 s·2^(art arda düşüş−1)` süre engellenir (cihaz ısındıkça kısılma sürerse çözünürlük "pompalamaz"); 30 s sakin dönem sayacı geri sarar. Yeni boyuta geçişten sonra ilk 3 örnek (hedef ayırma) yok sayılır.
+* **Animasyon hızı (ertelenmiş hat):** A kareleri hedef aralığı (1000/animationFps) tutamazsa (EMA > %145) kare atlanır (1/2, 1/3, 1/4) ve ucuz bloom açılır; 15 s·2ⁿ sonra bir kademe geri denenir.
+* **Durağan çözünürlük hiçbir zaman `k`dan etkilenmez** (yalnız `resolutionScale` ∧ `maxTracePixels`): durunca her zaman tam kalite.
+* `document.hidden`/`pagehide`: render durur. `navigator.getBattery` varsa (Chromium) şarjsız ve < %25 ⇒ animasyon ≤ 20 kare/sn; Safari'de yok ⇒ yok sayılır.
+
+### 6.4 Önbellekler
+* Boyuta göre **bayt bütçeli LRU** hedef önbelleği (mobil 96 MB, masaüstü 600 MB, en çok 6 boyut): HDR ping-pong (RGBA16F ×2) + G (RGBA32F, yalnız ertelenmiş hat) + A çıktısı (RGBA16F, yalnız animasyon). Boyut değişiminde sızıntı yok (`pipeline-check` T17); `getStats().gpuMB`.
+* **Bloom önbelleği:** animasyonda bloom girdisi türbülanssız taban görüntüdür (ESTETİK sadeleştirme: türbülans ortalaması ≈ 1.01, bloom geniş çekirdekle zaten süzer) ⇒ bloom taban/pozlama/yarıçap değişmedikçe yeniden hesaplanmaz.
+* Disk profil tablosu (R32F) ve kara cisim LUT'u (RGBA32F): NEAREST + elle `mix` (iOS'ta `OES_texture_float_linear` yok olabilir).
 
 ## 7. Disk, yıldız alanı ve halka ayrıntıları
 
@@ -322,7 +385,7 @@ Gözle onaylananlar: yaklaşan (mavi-beyaz, parlak) taraf solda, uzaklaşan (tur
 
 ## 12. Bilinen sorunlar / sınırlamalar / fizik–matematik ekibine sorular
 
-* **Gerçek GPU'da ölçüm yok.** Doğruluk SwiftShader'da (gerçek f32), performans yalnız göreli. Windows/ANGLE-D3D'de uzun (N=512) döngü zaman aşımı riski ölçülmedi. Uyarlamalı çözünürlük GPU süresini değil rAF aralığını izler.
+* **Gerçek GPU'da ölçüm yok.** Doğruluk SwiftShader'da (gerçek f32), performans yalnız göreli. Windows/ANGLE-D3D ve **iOS/Metal'de** uzun (N=512) döngü zaman aşımı riski ölçülmedi (4c önlemleri §14, doğrulanmadı). Uyarlamalı çözünürlük GPU süresini değil rAF aralığını izler (iOS Safari'de `EXT_disjoint_timer_query` yok).
 * **Matematik ekibine:** `src/math` f32-RK4 `traceRay`'in eksen yakını sıçramayı çözemediği (§2.1) 4a'dan beri bilinmiyordu; `math/README §7` taban uyuşmazlıkları (%0.5/%1.4) ve p99/maks Δr ("gölge kenarı") büyük ölçüde buradan geliyor. Öneri: `naturalStep`'e `L ≠ 0` iken göreli-θ ve bariyer zaman-ölçeği sınırı (trace.glsl'deki gibi) ekleyip `bench64/float32` tablolarını yenilemek. GPU–E32 doğrulaması bu hatayı gizledi (ikisi aynı hatayı yapıyor) — E32'ye karşı değil R64'e karşı sınama şart.
 * **Matematik ekibine (2):** kaçış yönü kesme hatası ≈ (b/r_esc)³ ve r_cam ≳ 150 + fov ≳ 60°'de f32 koşullanması (b² belirsizliği ≈ 2r²ε) yıldız konumunda ~1° hata verebilir; kalıcı çözüm p_r'yi R(r)'den cebirsel kurmak (math §9).
 * **Fizik ekibine:** (1) *[KARARLANDI, K2]* Mod B artık `Y_ref = Y(T_max)` (f_col'dan bağımsız): fiziksel parlaklık f_col⁻⁴·Y(f_col T)/Y(T_max) olarak değişir. `docs/physics/disk.md:143` hâlâ `Y_ref = Y(f_col T_max)` yazıyor — güncellenmesi gerekir (bu ajanın dosyası değil). (2) T < 1e3 K Wien sabiti (2.3e4 K, ±%30) — LUT'u 300 K'ye uzatıp sabiti kaldırmak ister misiniz (görüntüde etkisiz: I < 1e-3)? (3) ISCO altı (plunging) ışıma ve geri dönen ışınım yok; yüksek spinde (a ≳ 0.9) disk iç kısmında önemli olabilir (disk.md §8.3). (4) T>1e5 K'de kromatisite 1e5 K'de donuk (≲ %3 hata; disk.md §5.4) — görüntüde Tmax=1e6'da mavi plato. (5) Opak disk iki yüzünü de aynı ışıtıyor; limb darkening/polarizasyon yok.
@@ -340,7 +403,30 @@ node tests/render/photometry-validate.mjs [--grid=96x72] [--json=cikti.json]    
 node tests/render/axis-guard-validate.mjs [--grid=96x72]                          # eksen koruması ↔ R64
 node tests/render/pipeline-check.mjs                                               # biriktirme, etkileşim, animasyon, dinamik ölçek, fiziksel/estetik ayrımı, 8-bit yedek
 node tests/render/api-smoke.mjs                                                   # API sözleşmesi
-node tests/render/perf.mjs [--frames=3]                                           # ms/kare, bileşen maliyeti
+node tests/render/perf.mjs [--frames=3]                                           # ms/kare, bileşen maliyeti, 4c aşama maliyetleri (T+S / S / A)
+node tests/render/perf-frame.mjs [--profile=iphone|desktop|both] [--perf=auto|battery|balanced] [--secs=6]   # gerçek rAF döngüsünde durağan/animasyon/sürükleme (önce/sonra)
+node tests/render/steprule-study.mjs [--cams=32] [--grid=80x60]                    # stepRule full ↔ nodrag, rastgele kameralar, R64'e karşı
+node tests/render/gpu-validate.mjs --steprule=nodrag      # adım kuralını CPU E32 ile birlikte değiştirir (axis-guard-validate de --steprule alır)
 node tests/render/visual-snapshots.mjs [--out=/tmp/karadelik-gorsel-4b] [--size=640x480] [--frames=8] [--only=ad]   # PNG'ler (gözle denetim)
 ```
 Vite sunucusu ve Chromium (`--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`) betik içinden başlar/kapanır. Chromium'un test kodunun kendi `readPixels` çağrılarından ürettiği "GPU stall" performans uyarısı pipeline/perf testlerinde süzülür (üretim kodunda `readPixels` yok; `benchmark()` ve test hariç).
+
+## 14. iOS / iPadOS Safari (WebGL2) özel notlar — 4c
+
+**Gerçek cihazda doğrulanmadı** (SwiftShader + bilinen WebGL2/iOS kısıtları). Aşağıdakiler kod düzeyi önlemlerdir.
+
+| Konu | Karar / uygulama |
+|---|---|
+| **Render hedefi türü** | Uzantı adına güvenmek yerine **ham GL ile sınama** (`probeRenderable`): RGBA32F (G önbelleği) ve RGBA16F (HDR) için 4×4 FBO kurulup `checkFramebufferStatus === COMPLETE` aranır (iOS'ta uzantı bildirip eksik kalan sürümler). RGBA16F yoksa 8-bit yedek HDR (bloom yok); RGBA32F yoksa ertelenmiş hat kapanır, birleşik hat çalışır. Bağlam geri yüklenince yeniden sınanır. `EXT_color_buffer_half_float` tek başına RGBA16F için yeterlidir (WebGL2). |
+| **LINEAR float doku** | Hiçbir yerde varsayılmaz: G önbelleği, profil (R32F) ve kara cisim LUT'u (RGBA32F) `NEAREST` + `texelFetch` (+ elle `mix`); HDR ara hedefler RGBA16F (WebGL2'de çekirdekte filtrelenebilir). `OES_texture_float_linear` gerekmez. |
+| **MRT** | Üretim hattı tek renk eklentisi kullanır (T: 1×RGBA32F; S/A: 1×RGBA16F). 3×RGBA32F MRT yalnız `renderDebug*` (doğrulama) içindir; iOS'un MRT bayt/piksel sınırından kaçınmak için üretimde kullanılmaz. |
+| **Hassasiyet** | Her program `precision highp float; highp int; highp sampler2D;` ile başlar (post dahil); döngü sayaçları `int`, mediump'a düşmez. |
+| **Uzun döngü / GPU zaman aşımı** | (1) piksel bütçesi `maxTracePixels` (mobil 1.0 Mpx) ⇒ tek kare iş sınırlı; (2) `maxTickPixels` (mobil 0.5 Mpx) aşılırsa durağan/biriktirme işi yatay **şeritlere** bölünür, kare başına bir şerit + `gl.flush()` (görüntülenen kare şeritler arasında değişmez; `pipeline-check` T13 bit-bit eşdeğer); (3) etkileşimde çözünürlük düşük; (4) `stepRule:'nodrag'` en kötü adımı ~%18 (p99) – %54 (B, P2) azaltır ama varsayılan değil (§2.2); (5) bağlam kaybı **60 s içinde tekrarlarsa** `safeLevel` artar ve piksel/şerit bütçeleri ×0.7 küçülür (en çok 4 kademe). |
+| **Bağlam kaybı / geri yükleme** | `webglcontextlost` → `preventDefault`, iş ve önbellek bırakılır (geçersiz GL nesneleri dispose edilmez: "object does not belong to this context" uyarısı çıkardı); `webglcontextrestored` → yetenekler yeniden sınanır, **post zinciri, tablolar, malzemeler, geometri, debug hedefleri atılıp yeniden kurulur**, durum sıfırlanır, tam yeniden çizim. Arayüz kendi "bağlam kayboldu" ekranını gösterir (renderer bağımsız). `pipeline-check` T15 (`WEBGL_lose_context`). |
+| **Bellek** | Bayt bütçeli LRU (mobil 96 MB); iz sürme boyutları `2^(−k/6)` basamaklı ⇒ az sayıda boyut; tuval tamponu `maxPixelRatio` (2) ile sınırlı ve `MAX_TEXTURE_SIZE`/8192'ye kıstırılır. `dispose()` tüm hedefleri/malzemeleri/olay dinleyicilerini bırakır. |
+| **Güç / ısı** | `powerPreference`: mobil/iOS `'default'`, masaüstü `'high-performance'` (opts ile geçersiz kılınır). Boşta rAF durur; gizli sayfada hiçbir iş yok; animasyon ≤ `animationFps` (auto mobil 30, pil azsa 20); ucuz bloom; `antialias:false, depth:false, stencil:false, alpha:false`; `preserveDrawingBuffer` yalnız `opts` ile (UI ekran görüntüsü `renderOnce` + `toBlob` aynı görevde alır). |
+| **Cihaz algısı** | iPadOS 13+ `MacIntel` + `maxTouchPoints > 1`, iPhone/iPad UA, Android UA, `(pointer: coarse)`. Yalnız **gösterim/performans** kararlarını (piksel bütçesi, ön ayar, ucuz bloom, önbellek bütçesi) etkiler; fizik/kalite (`quality`) otomatik DEĞİŞMEZ. |
+| **Shader derleme** | Ertelenmiş hat yalnız gerekeni derler (T: çekirdek; S: gökyüzü+fotometri; A: türbülans); birleşik program ancak gerekirse. İlk karede derleme süresi (Metal) tarayıcıya bağlıdır. |
+
+**Gerçek cihazda doğrulanamayanlar (öncelik sırasıyla):** (1) iPhone/iPad'de gerçek FPS ve ısınma davranışı; denetleyici hedefleri (33 ms) ve eşikleri (%125 / %62) iOS rAF zamanlamasına göre ayar isteyebilir; (2) `probeRenderable`nin RGBA32F kararı eski iOS 15 cihazlarda; (3) şeritli işin `gl.flush()` ile iOS komut tamponunu gerçekten bölüp bölmediği ve `maxTickPixels` (0.5 Mpx) değerinin güvenli olup olmadığı; (4) bağlam kaybı sonrası otomatik toparlanma (Safari bazen yeniden yüklemeyi tercih eder); (5) Safari 17+ ProMotion rAF 120 Hz'de `animationFps` aralık mantığı; (6) uzun oturumda bellek (Safari sekme limiti).
+

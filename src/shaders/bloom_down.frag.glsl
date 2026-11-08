@@ -7,6 +7,7 @@ uniform vec2 uSrcTexel;     // 1 / kaynak boyutu
 uniform vec2 uDstInv;       // 1 / hedef boyutu
 uniform float uExposure;    // yalnız ilk seviye
 uniform int uFirst;         // 1: ilk seviye (pozlama + Karis)
+uniform int uCheap;         // 1 (yalnız ilk seviyede): 13 yerine 4 bilinear örnek (mobil/düşük kademe: tam çözünürlüklü okuma sayısı 13 → 4)
 
 out vec4 fragColor;
 
@@ -20,6 +21,16 @@ float karis(vec3 c) { return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722)));
 void main() {
   vec2 uv = gl_FragCoord.xy * uDstInv;
   vec2 t = uSrcTexel;
+  if (uFirst == 1 && uCheap == 1) {
+    // ucuz kademe: 4 bilinear örnek (her biri 2×2 kutu) = 4×4 kutu süzgeç, Karis ağırlıklı
+    vec3 j = fetch(uv + t * vec2(-1.0, -1.0));
+    vec3 k = fetch(uv + t * vec2( 1.0, -1.0));
+    vec3 l = fetch(uv + t * vec2(-1.0,  1.0));
+    vec3 m = fetch(uv + t * vec2( 1.0,  1.0));
+    float wj = karis(j), wk = karis(k), wl = karis(l), wm = karis(m);
+    fragColor = vec4((j * wj + k * wk + l * wl + m * wm) / (wj + wk + wl + wm), 1.0);
+    return;
+  }
   vec3 a = fetch(uv + t * vec2(-2.0, -2.0));
   vec3 b = fetch(uv + t * vec2( 0.0, -2.0));
   vec3 c = fetch(uv + t * vec2( 2.0, -2.0));

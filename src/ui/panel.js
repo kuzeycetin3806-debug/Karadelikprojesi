@@ -73,7 +73,7 @@ const SECTIONS = [
     controls: [
       { key: 'disk', kind: 'toggle', badge: 'phys', get: (p) => p.disk, patch: (v) => ({ disk: v }) },
       {
-        key: 'Tmax', kind: 'range', simple: true, badge: 'phys', map: logMap(2000, 1e6), enabled: (p) => p.disk,
+        key: 'Tmax', kind: 'range', badge: 'phys', map: logMap(2000, 1e6), enabled: (p) => p.disk,
         get: (p, m) => m.fromValue(p.Tmax), patch: (v, p, m) => ({ Tmax: m.toValue(v) }),
         fmt: (v, p, ctx, m) => `${sig(m.toValue(v), 3)} K`,
       },
@@ -138,7 +138,8 @@ const SECTIONS = [
     controls: [
       {
         key: 'performance', kind: 'seg', badge: 'view',
-        options: [['quality', 'quality'], ['balanced', 'balanced'], ['battery', 'battery']],
+        options: [['auto', 'auto'], ['quality', 'quality'], ['balanced', 'balanced'], ['battery', 'battery']],
+        needsAuto: true,
         get: (p) => p.performance, patch: (v) => ({ performance: v }),
       },
       {
@@ -334,7 +335,11 @@ export function createPanel(ctx) {
     return fs;
   }
 
-  const build = (def) => (def.kind === 'range' ? buildRange(def) : def.kind === 'toggle' ? buildToggle(def) : buildSeg(def));
+  // 'auto' performans modu renderer'da yoksa (eski sürüm) seçenek gösterilmez; böylece RangeError oluşmaz.
+  const build = (def0) => {
+    const def = def0.needsAuto && !ctx.hasAuto ? { ...def0, options: def0.options.filter(([k]) => k !== 'auto') } : def0;
+    return def.kind === 'range' ? buildRange(def) : def.kind === 'toggle' ? buildToggle(def) : buildSeg(def);
+  };
 
   function section(id, title, bodyNodes, { open = true, cls = '' } = {}) {
     const d = h('details', { class: `sec ${cls}`, 'data-sec': id }, h('summary', null, h('span.sec-title', null, title), icon(...ICONS.chevron)), h('div.sec-body', null, ...bodyNodes));
@@ -344,7 +349,7 @@ export function createPanel(ctx) {
 
   // ---- hazır ayarlar (görsel kartlar: küçük resim, ön ayarın gerçek a / eğim değerlerinden çizilir)
   const presetBtns = PRESETS.map((pr) =>
-    h('button.btn.preset', { type: 'button', 'data-preset': pr.id, onClick: () => ctx.applyPreset(pr.patch) },
+    h('button.btn.preset', { type: 'button', 'data-preset': pr.id, onClick: () => ctx.applyPreset(pr) },
       presetThumb(pr.patch),
       h('span.preset-name', null, S.presets[pr.id]))
   );
@@ -430,7 +435,7 @@ export function createPanel(ctx) {
 
   // ---- performans göstergesi
   const statEls = {};
-  const statRows = ['fps', 'trace', 'canvas', 'scale', 'accum', 'mode', 'hdr'].map((k) => {
+  const statRows = ['fps', 'frameMs', 'trace', 'canvas', 'scale', 'adaptive', 'accum', 'mode', 'hdr'].map((k) => {
     const dd = h('dd', { 'data-stat': k }, '—');
     statEls[k] = dd;
     return [h('dt', null, S.stats[k]), dd];
@@ -443,7 +448,10 @@ export function createPanel(ctx) {
     const dt = (now - fpsLast.t) / 1000;
     const fps = dt > 0 ? (st.frames - fpsLast.f) / dt : 0;
     fpsLast = { t: now, f: st.frames };
-    statEls.fps.textContent = `${fixed(fps, 0)} /s`;
+    const fpsShown = Number.isFinite(st.fps) ? st.fps : fps; // renderer kendi kare hızını veriyorsa onu göster
+    statEls.fps.textContent = `${fixed(fpsShown, 0)} /s`;
+    statEls.frameMs.textContent = Number.isFinite(st.frameMs) ? `${fixed(st.frameMs, 1)} ms` : '—';
+    statEls.adaptive.textContent = st.adaptiveLevel !== undefined && st.adaptiveLevel !== null ? String(st.adaptiveLevel) : '—';
     statEls.trace.textContent = `${st.traceWidth}×${st.traceHeight}`;
     statEls.canvas.textContent = `${st.width}×${st.height}`;
     statEls.scale.textContent = fixed(st.scale, 2);
@@ -460,7 +468,7 @@ export function createPanel(ctx) {
     return sec;
   });
   const presetSec = section('presets', S.sections.presets, [h('div.presets', null, ...presetBtns)]);
-  presetSec.classList.add('has-simple');
+  presetSec.classList.add('adv-only'); // Basit modda sahne kartları yeterli; hazır ayarlar Gelişmiş'te
   const infoSec = section('info', S.sections.info, infoSection, { open: false, cls: 'sec-info' });
   const statsSec = section('stats', S.sections.stats, statsBody, { open: false, cls: 'sec-stats' });
 

@@ -53,3 +53,11 @@ float diskEdgeFactor(float r) {
   float w = uEdgeFade * (uROut - uProfRIn);
   return 1.0 - smoothstep(uROut - w, uROut, r);
 }
+
+// Piksel ayak izi (M cinsinden, disk düzleminde yaklaşık): kamera mesafesi × piksel açısı; yatık bakışta uzar
+// (shading.glsl'den buraya taşındı: animasyon geçişi yalnız turbulence.glsl'i derler)
+float diskPixelFootprint() {
+  float px = uCam.x * 2.0 * uTanHalf.y / uResolution.y;
+  float cosI = max(abs(cos(uCam.y)), 0.15);
+  return px / sqrt(cosI);
+}

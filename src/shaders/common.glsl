@@ -36,6 +36,7 @@ uniform int   uMaxSteps;     // adım bütçesi N
 uniform float uREscape;      // kaçış yarıçapı
 uniform int   uAnalyticFate; // 1: bütçesi biten ışın analitik sınıflanır (§4.4); 0: "bütçe bitti → yakalandı"
 uniform float uAxisKappa;    // 4b: eksen yakını adım koruması κ_a (0 = kapalı = 4a'nın birebir portu; görsel modda 0.15). trace.glsl
+uniform int   uStepNoDrag;   // 4c: adım kuralı 'nodrag' (1) | 'full' (0). nodrag: φ' yerine L/sinθ − a sinθ (aP/Δ çerçeve sürüklenmesi adım kuralından çıkarılır; CPU raytracer.js stepRule:'nodrag' ile birebir)
 
 // --- disk
 uniform int   uDiskOn;       // 1: disk var
@@ -71,6 +72,8 @@ uniform float uStarSigma;           // yıldız PSF σ_s: 0.65 TUVAL pikseli × 
 uniform vec2  uJitter;              // alt-piksel kaydırma (piksel, [−½,½]); debug'da 0
 uniform float uAccumW;              // biriktirme ağırlığı: 1 = yalnız bu kare; 1/(n+1) = ortalamaya katıl
 uniform highp sampler2D uPrev;      // önceki birikmiş HDR (uAccumW < 1 iken okunur)
+uniform highp sampler2D uG;         // 4c: iz sürme önbelleği (RGBA32F, NEAREST): disk (r, g_cam, φ, 2) | kaçış (θ_∞, φ_∞, ν_cam/ν_∞, 1) | yakalanma (0, 0, ν_cam/ν_∞, 0)
+uniform int   uTurbDeferred;        // 4c: 1 ⇒ türbülans çarpanı gölgelendirmede UYGULANMAZ (animasyon geçişi sonradan uygular); 0 ⇒ gölgelendirmede uygulanır
 uniform float uHdrEncode;           // HDR hedefi kodlama çarpanı: 1 (float) | 1/8 (8-bit yedek hedef); composite 1/uHdrEncode ile açar
 
 // --- integratör durumu: y = (r, θ, φ, p_r, p_θ); Hamilton biçimi, Mino zamanı

@@ -3,6 +3,7 @@
  *   node tests/ui/ui-check.mjs [--out=/tmp/karadelik-ui] [--only=shots|logic|shell]
  * - Kontroller → setParams, fare/dokunmatik/klavye kamera etkisi, bilgi ekranı ↔ physics, konsol hatası.
  * - 375×812, 768×1024, 1024×768, 1440×900 ekran görüntüleri.
+ * v3 (sade arayüz): 2 kalıcı düğme (i, …) + sahne şeridi, sahne kartları → setParams, bilgi kartı, etiketler (--only=scenes).
  * - Basit/Gelişmiş mod, … menüsü, Kılavuz/Gizlilik, bağımsız sayfalar, imza, Apple cihaz profilleri (Chromium + Playwright devices; WebKit motoru yok).
  *   --apple-out=/tmp/karadelik-apple  --only=apple|simple|docs
  */
@@ -81,6 +82,12 @@ async function openMenuItem(page, id) {
   if (!(await page.isVisible('#app-menu'))) await page.click('#menu-toggle');
   await page.waitForSelector(`#app-menu [data-menu=${id}]`, { state: 'visible', timeout: 10000 });
   await page.click(`#app-menu [data-menu=${id}]`);
+}
+/** Ayarlar panelini "…" menüsünden açar (kalıcı Ayarlar düğmesi yok). */
+async function openSettings(page) {
+  if (await page.evaluate(() => window.__karadelik.ui.isOpen())) return;
+  await openMenuItem(page, 'settings');
+  await page.waitForFunction(() => window.__karadelik.ui.isOpen() && !document.getElementById('panel').hasAttribute('inert') && getComputedStyle(document.getElementById('panel')).visibility === 'visible', null, { timeout: 15000 });
 }
 const P = (page) => page.evaluate(() => window.__karadelik.renderer.getParams());
 const ST = (page) => page.evaluate(() => window.__karadelik.renderer.getStats());
@@ -354,37 +361,34 @@ async function logicDesktop() {
   await settleCamera(page);
   check('θ üst sınırı 179°', Math.abs((await P(page)).thetaCam / DEG - 179) < 1e-6);
 
-  // panel aç/kapa + Esc
+  // ayarlar: menüden aç/kapa + Esc (kalıcı Ayarlar düğmesi yok; Ayarlar "…" menüsündedir)
   await page.evaluate(() => window.__karadelik.ui.camera.reset());
-  await page.click('#panel-toggle');
+  await openMenuItem(page, 'settings');
   await page.waitForFunction(() => !window.__karadelik.ui.isOpen() && getComputedStyle(document.getElementById('panel')).visibility === 'hidden', null, { timeout: 30000 });
-  check('panel aç/kapa düğmesi (aria-expanded=false)', (await page.getAttribute('#panel-toggle', 'aria-expanded')) === 'false' && !(await page.isVisible('#panel')));
-  await page.click('#panel-toggle');
-  // Sabit bekleme yerine koşul: SwiftShader'da render ana iş parçacığını yüzlerce ms meşgul edebilir.
+  check('menü → Ayarlar öğesi paneli kapatır (anahtar davranışı)', !(await page.isVisible('#panel')));
+  await openMenuItem(page, 'settings');
   await page.waitForFunction(() => window.__karadelik.ui.isOpen() && !document.getElementById('panel').hasAttribute('inert') && getComputedStyle(document.getElementById('panel')).visibility === 'visible' && getComputedStyle(document.getElementById('ui-a')).visibility === 'visible', null, { timeout: 15000 });
   await page.focus('#ui-a');
   const focAfter = await page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
-  check('panel açıkken kaydırıcıya odak verilebilir', focAfter === 'ui-a', focAfter);
+  check('ayarlar açıkken kaydırıcıya odak verilebilir', focAfter === 'ui-a', focAfter);
   await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !window.__karadelik.ui.isOpen() && document.activeElement?.id === 'panel-toggle' && getComputedStyle(document.getElementById('panel')).visibility === 'hidden', null, { timeout: 15000 }).catch(() => {});
-  const preEsc = await page.evaluate(() => { const el = document.getElementById('ui-a'); const d = el?.closest('details'); return { detailsOpen: d ? d.open : null, disabled: el?.disabled, rect: el?.getBoundingClientRect().height }; });
+  await page.waitForFunction(() => !window.__karadelik.ui.isOpen() && getComputedStyle(document.getElementById('panel')).visibility === 'hidden', null, { timeout: 15000 }).catch(() => {});
   const escSt = await page.evaluate(() => ({ open: window.__karadelik.ui.isOpen(), active: document.activeElement?.id || document.activeElement?.tagName }));
-  check('Esc paneli kapatır, odak düğmeye döner', !(await page.isVisible('#panel')) && escSt.active === 'panel-toggle', JSON.stringify({ ...escSt, ...preEsc, focAfter }));
-  await page.click('#panel-toggle');
-  await page.waitForFunction(() => window.__karadelik.ui.isOpen() && !document.getElementById('panel').hasAttribute('inert') && getComputedStyle(document.getElementById('panel')).visibility === 'visible' && getComputedStyle(document.getElementById('ui-a')).visibility === 'visible', null, { timeout: 15000 });
+  check('Esc ayarları kapatır, odak “…” düğmesine döner', !(await page.isVisible('#panel')) && escSt.active === 'menu-toggle', JSON.stringify({ ...escSt, focAfter }));
+  await openSettings(page);
 
   // ekran görüntüsü indirme
-  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('button[aria-label="Ekran görüntüsü indir"]')]);
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), openMenuItem(page, 'screenshot')]);
   const dlPath = path.join(OUT, 'indirilen-' + dl.suggestedFilename());
   await dl.saveAs(dlPath);
   const sig = fs.readFileSync(dlPath).subarray(0, 8).toString('hex');
   check('ekran görüntüsü indirme (PNG)', sig === '89504e470d0a1a0a' && fs.statSync(dlPath).size > 1000, `${dl.suggestedFilename()} ${fs.statSync(dlPath).size} B`);
 
   // klavye gezinmesi: Tab ile odak halkası olan öğeye ulaşılır
-  await page.focus('#panel-toggle');
+  await page.focus('#menu-toggle');
   let reached = 0;
-  for (let i = 0; i < 12; i++) { await page.keyboard.press('Tab'); if (await page.evaluate(() => !!document.activeElement?.closest('#panel'))) reached++; }
-  check('Tab ile panel öğelerine gezinme', reached >= 3, `${reached}/12`);
+  for (let i = 0; i < 24; i++) { await page.keyboard.press('Tab'); if (await page.evaluate(() => !!document.activeElement?.closest('#panel'))) reached++; }
+  check('Tab ile panel öğelerine gezinme (sahne kartlarından sonra)', reached >= 3, `${reached}/24`);
   const a11y = await page.evaluate(() => {
     const unlabeled = [...document.querySelectorAll('#ui input, #ui button, #ui select')].filter((e) => {
       const lab = e.getAttribute('aria-label') || (e.labels && e.labels.length) || e.textContent.trim() || e.getAttribute('aria-labelledby');
@@ -404,8 +408,9 @@ async function logicTouch() {
   await cheap(page);
   const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches);
   const p00 = await P(page);
-  check('dokunmatik cihazda mobil kalite varsayılanları', coarse ? p00.quality === 'mobile' && p00.performance === 'battery' : true, `coarse=${coarse} quality=${p00.quality}`);
-  check('telefonda panel başlangıçta kapalı', !(await page.evaluate(() => window.__karadelik.ui.isOpen())));
+  const hasAuto = await page.evaluate(() => window.__karadelik.ui.hasAuto);
+  check('dokunmatik cihazda arayüz kendi performans varsayılanını koymaz: renderer “auto” (yoksa eski mobil/pil geri dönüşü)', !coarse || (hasAuto ? p00.performance === 'auto' : p00.quality === 'mobile' && p00.performance === 'battery'), `coarse=${coarse} auto=${hasAuto} performance=${p00.performance} quality=${p00.quality} scale=${p00.resolutionScale}`);
+  check('telefonda ayarlar paneli başlangıçta kapalı', !(await page.evaluate(() => window.__karadelik.ui.isOpen())));
   await page.evaluate(() => window.__karadelik.ui.camera.reset());
   await settleCamera(page);
 
@@ -437,7 +442,8 @@ async function logicTouch() {
   await cdp.detach();
 
   // panel (sheet)
-  await page.tap('#panel-toggle');
+  await page.tap('#menu-toggle');
+  await page.tap('#app-menu [data-menu=settings]');
   await page.waitForFunction(() => { const p = document.getElementById('panel'); const r = p.getBoundingClientRect(); return getComputedStyle(p).visibility === 'visible' && r.bottom >= innerHeight - 1 && r.top < innerHeight * 0.7; }, null, { timeout: 30000 });
   check('telefon: panel alttan açılır (sheet)', await page.evaluate(() => {
     const r = document.getElementById('panel').getBoundingClientRect();
@@ -526,7 +532,7 @@ async function shellChecks() {
   check('? → kılavuz penceresi açılır', await page.isVisible('#dlg-guide'));
   check('? → kılavuz Kontroller bölümüne kaydırır', await page.evaluate(() => { const b = document.querySelector('#dlg-guide .dlg-body').getBoundingClientRect(); const t = document.getElementById('guide-controls').getBoundingClientRect(); return t.top >= b.top - 2 && t.top < b.top + b.height * 0.5; }));
   check('kılavuz: fare/dokunmatik/klavye alt başlıkları', (await page.$$eval('#guide-camera h4', (e) => e.map((x) => x.textContent))).join() === 'Fare,Dokunmatik ekran,Klavye');
-  check('kılavuz: 8 bölüm (başlarken…sorun giderme), tekrar eden Yardım penceresi yok', (await page.$$eval('#dlg-guide .doc-sec > h3', (e) => e.map((x) => x.textContent))).join('|') === 'Başlarken|Kamerayı kontrol etme|Hazır ayarlar|Kontroller|Ne görüyorsunuz?|Performans ipuçları|Uygulamayı yükleme|Sorun giderme' && (await page.$('#dlg-help')) === null);
+  check('kılavuz: 9 bölüm (başlarken, kara delik nedir, sahneler…sorun giderme), tekrar eden Yardım penceresi yok', (await page.$$eval('#dlg-guide .doc-sec > h3', (e) => e.map((x) => x.textContent))).join('|') === 'Başlarken|Kara delik nedir?|Sahneler ve etiketler|Kamerayı kontrol etme|Ayarlar|Ne görüyorsunuz?|Performans ipuçları|Uygulamayı yükleme|Sorun giderme' && (await page.$('#dlg-help')) === null);
   check('kılavuz: “Tam sayfa aç” bağlantısı kilavuz.html', (await page.getAttribute('#dlg-guide a.dlg-full', 'href')).endsWith('kilavuz.html'));
   const th0 = (await P(page)).thetaCam;
   await page.keyboard.press('ArrowUp');
@@ -715,7 +721,7 @@ async function screenshots() {
 
 // ================================================================== SADE ARAYÜZ / MENÜ / KILAVUZ / GİZLİLİK / İMZA
 const SIGN = 'App design by Kuzey Çetin';
-const SIMPLE_KEYS = ['a', 'thetaCam', 'rCam', 'Tmax', 'animate'];
+const SIMPLE_KEYS = ['a', 'thetaCam', 'rCam', 'animate'];
 
 /** Görünür etkileşim hedeflerinden 44×44 px altında kalanları döndürür (dokunmatik profiller için). */
 async function smallTargets(page) {
@@ -744,7 +750,7 @@ async function simpleChecks() {
   await settleRender(page, 600, 15000);
 
   // ---- ilk açılış ipucu (bir defalık)
-  check('ilk açılışta “Nasıl kullanılır” ipucu görünür', await page.isVisible('.tip') && /Sürükleyin/.test(await page.textContent('.tip')) && /Ayarlar/.test(await page.textContent('.tip')));
+  check('ilk açılışta “Nasıl kullanılır” ipucu görünür', await page.isVisible('.tip') && /Sürükleyin/.test(await page.textContent('.tip')) && /Alttaki kartlar/.test(await page.textContent('.tip')));
   await page.click('.tip-ok');
   await page.waitForSelector('.tip', { state: 'hidden', timeout: 5000 });
   check('ipucu kapatılınca gizlenir ve localStorage’a yazılır', (await page.evaluate(() => localStorage.getItem('karadelik.tipSeen'))) === '1');
@@ -754,9 +760,9 @@ async function simpleChecks() {
   check('mod anahtarı kaydırılan alanın üstünde (sabit)', await page.evaluate(() => document.querySelector('.modebar').getBoundingClientRect().bottom <= document.querySelector('.panel-scroll').getBoundingClientRect().top + 1));
   const totalCtl = await page.$$eval('#panel [data-ctl]', (e) => e.length);
   const simpleVis = await visibleKeys(page);
-  check('Basit: yalnız Spin, Eğim, Uzaklık, Disk sıcaklığı, Animasyon görünür (≤ 4 kaydırıcı + animasyon)', simpleVis.join() === SIMPLE_KEYS.join(), simpleVis.join());
+  check('Basit: yalnız Dönüş hızı, Bakış açısı, Uzaklık kaydırıcıları + Animasyon anahtarı görünür', simpleVis.join() === SIMPLE_KEYS.join(), simpleVis.join());
   check('Basit: diğer kontroller silinmedi, yalnız gizli (DOM’da 25 kontrol)', totalCtl === 25, String(totalCtl));
-  check('Basit: 4 hazır ayar görsel kartı (küçük resimli)', (await visibleCount(page, '.preset')) === 4 && (await page.$$eval('.preset svg.preset-thumb', (s) => s.length)) === 4);
+  check('Basit: hazır ayar kartları gizli (sahne şeridi yeterli); DOM’da 4 kart durur', (await visibleCount(page, '.preset')) === 0 && (await page.$$eval('.preset svg.preset-thumb', (s) => s.length)) === 4);
   check('Basit: rozetler, lejant, bilimsel bilgi ve performans göstergesi gizli', (await visibleCount(page, '#panel .badge')) === 0 && (await visibleCount(page, '#panel .legend')) === 0 && (await visibleCount(page, '#panel [data-sec=info] summary')) === 0 && (await visibleCount(page, '#panel [data-sec=stats] summary')) === 0);
   await page.click('[data-ctl=a] .ctl-help');
   const tipSimple = await page.textContent('[data-ctl=a] .ctl-tip .tip-simple');
@@ -765,10 +771,10 @@ async function simpleChecks() {
   // basit kontroller renderer'a yazar
   await page.fill('#ui-a', '0.5');
   await page.fill('#ui-thetaCam', '60');
-  await page.fill('#ui-Tmax', '700');
   await settleCamera(page);
   let p = await P(page);
-  check('Basit: Spin/Eğim/Tmax kaydırıcıları → setParams', near(p.a, 0.5, 1e-9) && near(p.thetaCam, 60 * DEG, 1e-6) && near(p.Tmax, 2000 * Math.pow(500, 0.7), 1e-9), `a=${p.a} θ=${(p.thetaCam / DEG).toFixed(2)} Tmax=${p.Tmax.toFixed(0)}`);
+  check('Basit: Dönüş hızı/Bakış açısı kaydırıcıları → setParams (Tmax Gelişmiş’e taşındı)', near(p.a, 0.5, 1e-9) && near(p.thetaCam, 60 * DEG, 1e-6), `a=${p.a} θ=${(p.thetaCam / DEG).toFixed(2)}`);
+  check('Basit: kaydırıcı değişince görünüm “Özel görünüm” olur (kart seçimi kalkar)', (await page.evaluate(() => window.__karadelik.ui.getScene())) === null && (await page.$$eval('.scene-card.selected', (e) => e.length)) === 0);
   await page.check('#ui-animate');
   check('Basit: Animasyon anahtarı → animate', (await P(page)).animate === true);
   await page.uncheck('#ui-animate');
@@ -777,7 +783,7 @@ async function simpleChecks() {
   // ---- Gelişmiş
   await page.click('label[for="ui-mode-advanced"]');
   const advVis = await visibleKeys(page);
-  check('Gelişmiş: tüm 25 kontrol görünür', advVis.length === 25, String(advVis.length));
+  check('Gelişmiş: tüm 25 kontrol görünür (Tmax dahil) + 4 hazır ayar kartı', advVis.length === 25 && advVis.includes('Tmax') && (await visibleCount(page, '.preset')) === 4, String(advVis.length));
   check('Gelişmiş: FİZİKSEL/ESTETİK/GÖSTERİM rozetleri ve lejant geri gelir', (await visibleCount(page, '#panel .badge.phys')) > 0 && (await visibleCount(page, '#panel .badge.aest')) > 0 && (await visibleCount(page, '#panel .badge.view')) > 0 && (await visibleCount(page, '#panel .legend')) === 1);
   check('Gelişmiş: bilimsel bilgi + performans göstergesi bölümleri görünür', (await visibleCount(page, '#panel [data-sec=info] summary')) === 1 && (await visibleCount(page, '#panel [data-sec=stats] summary')) === 1);
   check('Gelişmiş: mod localStorage’da', (await page.evaluate(() => localStorage.getItem('karadelik.uiMode'))) === 'advanced');
@@ -795,17 +801,19 @@ async function simpleChecks() {
   await page.waitForFunction(() => !!window.__karadelik?.ui, null, { timeout: 60000 });
   await page.evaluate(() => window.__karadelik.ui.set({ animate: false, resolutionScale: 0.25 }));
   check('yeniden yüklemede mod hatırlanır (Gelişmiş) ve ipucu tekrar gösterilmez', (await page.evaluate(() => window.__karadelik.ui.getMode())) === 'advanced' && !(await page.isVisible('.tip')));
+  await page.evaluate(() => window.__karadelik.ui.open()); // yeniden yüklemeden sonra ayarlar kapalı başlar
+  await page.waitForFunction(() => getComputedStyle(document.getElementById('ui-mode-simple').labels[0]).visibility === 'visible', null, { timeout: 15000 });
   await page.click('label[for="ui-mode-simple"]');
   check('Basit seçimi de hatırlanır', (await page.evaluate(() => localStorage.getItem('karadelik.uiMode'))) === 'simple');
   await page.waitForSelector('#splash', { state: 'detached', timeout: 90000 });
 
   // ---- araç çubuğu: birincil + … menüsü
-  const prim = await page.$$eval('.toolbar:not(.toolbar-util) button', (b) => b.map((x) => x.getAttribute('aria-label')));
-  check('araç çubuğu: birincil eylemler Ayarlar · Sıfırla · Ekran görüntüsü + tek “…” düğmesi', prim.length === 3 && /Ayarlar|Kontrol paneli/.test(prim[0]) && /sıfırla/i.test(prim[1]) && /Ekran görüntüsü/.test(prim[2]) && (await page.$$eval('.toolbar-util > button', (b) => b.length)) === 1);
+  const permanent = await page.$$eval('.toolbar button', (b) => b.filter((x) => x.getBoundingClientRect().width > 0).map((x) => x.id));
+  check('ekranda yalnız 2 kalıcı düğme: “i” bilgi + “…” menü (Ayarlar/Sıfırla/Ekran görüntüsü menüye taşındı)', permanent.join() === 'info-toggle,menu-toggle', permanent.join());
   await page.click('#menu-toggle');
   check('… menüsü açılır (aria-expanded=true, role=menu)', (await page.getAttribute('#menu-toggle', 'aria-expanded')) === 'true' && (await page.getAttribute('#app-menu', 'role')) === 'menu');
   const items = await page.$$eval('#app-menu .menu-item:not([hidden])', (b) => b.map((x) => x.dataset.menu));
-  check('… menüsü: Kılavuz, Hakkında, Gizlilik, Tam ekran (varsa)', ['guide', 'about', 'privacy'].every((k) => items.includes(k)), items.join());
+  check('… menüsü: Ayarlar, Kamerayı sıfırla, Ekran görüntüsü, Kılavuz, Hakkında, Gizlilik (+ Tam ekran/Yükle varsa)', ['settings', 'reset', 'screenshot', 'guide', 'about', 'privacy'].every((k) => items.includes(k)), items.join());
   await page.keyboard.press('Escape');
   check('Esc … menüsünü kapatır, odak düğmeye döner', !(await page.isVisible('#app-menu')) && (await page.evaluate(() => document.activeElement?.id)) === 'menu-toggle' && (await page.getAttribute('#menu-toggle', 'aria-expanded')) === 'false');
   await page.focus('#menu-toggle');
@@ -813,7 +821,7 @@ async function simpleChecks() {
   const f1 = await page.evaluate(() => document.activeElement?.dataset.menu);
   await page.keyboard.press('ArrowDown');
   const f2 = await page.evaluate(() => document.activeElement?.dataset.menu);
-  check('menü: ↓ ile açılır ve öğeler arasında gezinilir', f1 === 'guide' && f2 === 'about', `${f1} → ${f2}`);
+  check('menü: ↓ ile açılır ve öğeler arasında gezinilir', f1 === 'settings' && f2 === 'reset', `${f1} → ${f2}`);
   await page.mouse.click(700, 500);
   check('menü dışına tıklayınca kapanır', !(await page.isVisible('#app-menu')));
 
@@ -866,6 +874,26 @@ async function docsChecks() {
   for (const f of walk(path.join(PROJECT_ROOT, 'src/ui')).filter((x) => x.endsWith('.js') && !x.endsWith('strings.js'))) for (const m of fs.readFileSync(f, 'utf8').matchAll(/['"`](karadelik\.[A-Za-z]+)['"`]/g)) codeKeys.add(m[1]);
   const policyKeys = new Set(S.privacy.sections.find((x) => x.id === 'storage').blocks.find(([k]) => k === 'dl')[1].map(([k]) => k));
   check('gizlilik politikasındaki localStorage anahtarları = koddakiler', [...codeKeys].sort().join() === [...policyKeys].sort().join() && [...codeKeys].sort().join() === Object.values(PREF_KEYS).sort().join(), `${[...codeKeys].sort().join()} | ${[...policyKeys].sort().join()}`);
+  // ---- metinlerdeki sayılar src/physics fonksiyonlarıyla tutarlı mı (fizik denetimi için)
+  const tr = (x, d) => x.toFixed(d).replace('.', ',');
+  const SC = S.scenes;
+  const hasAll = (txt, arr) => arr.every((x) => txt.includes(x));
+  const bc = 3 * Math.sqrt(3);
+  const whatis = JSON.stringify(S.guide.sections.find((x) => x.id === 'whatis'));
+  check('metin: gölge yarıçapı 3√3 M ≈ 5,2 M ve ufku 2 M’nin ≈ 2,6 katı (b_c = 3√3 M, r₊ = 2 M)', hasAll(SC.schwarzschild.text, [`${tr(bc, 1)} M`, `${tr(horizonRadii(1, 0).rPlus, 0)} M`]) && hasAll(whatis, ['3√3 M', tr(bc, 1), tr(bc / horizonRadii(1, 0).rPlus, 1)]) && Math.abs(shadowBoundary(1, 0, 1, 8)[0].alpha + bc) < 1e-12);
+  check('metin: foton küresi 3 M, ISCO 6 M (a=0), a=0,998 için ≈ 1,2 M', hasAll(whatis, [`${photonOrbitRadius(1, 0, true)} M`, `${iscoRadius(1, 0, true)} M`, `${tr(iscoRadius(1, 0.998, true), 1)} M`]));
+  check('sahne metni: a=0,9 prograd ISCO ≈ 2,3 M', SC.kerr09.text.includes(`${tr(iscoRadius(1, 0.9, true), 1)} M`) && SC.retro.text.includes(`${tr(iscoRadius(1, 0.9, true), 1)} M`));
+  check('sahne metni: a=0,998 ISCO ≈ 1,2 M, verim %32 (a=0: %5,7)', SC.extreme.text.includes(`${tr(iscoRadius(1, 0.998, true), 1)} M`) && SC.extreme.text.includes(`yüzde ${Math.round(100 * radiativeEfficiency(0.998, true))}`) && SC.extreme.text.includes(`yüzde ${tr(100 * radiativeEfficiency(0, true), 1)}`));
+  check('sahne metni: retrograd a=0,9 ISCO ≈ 8,7 M, verim ≈ %3,9', SC.retro.text.includes(`${tr(iscoRadius(1, 0.9, false), 1)} M`) && SC.retro.text.includes(`yüzde ${tr(100 * radiativeEfficiency(0.9, false), 1)}`));
+  const { SCENES, DEFAULT_SCENE } = await import('../../src/ui/scenes.js');
+  check('8 sahne; her birinin başlığı, açıklaması ve en az 3 “Neye bakmalı?” maddesi var; açıklama ≤ 4 cümle', SCENES.length === 8 && SCENES.every((sc) => { const t = SC[sc.id]; return t && t.title && t.short && t.look.length >= 3 && t.text.split(/[.!?]\s/).length <= 4; }));
+  check('“M87* görüntüsüdür” iddiası yok; yalnız bilgi notu', !/M87\* (görüntüsüdür|fotoğrafı)/.test(SC.tilt17.text) && /görüntüsü değildir/.test(SC.tilt17.text) && !Object.values(SC).some((t) => /Interstellar|Gargantua/i.test(t.text)));
+  check('varsayılan sahne = renderer varsayılanı (a=0,9, 75°, 50 M)', DEFAULT_SCENE === 'kerr09' && SCENES.find((x) => x.id === 'kerr09').patch.a === 0.9);
+  const thumbs = SCENES.map((sc) => path.join(PROJECT_ROOT, 'public/scenes', `${sc.id}.webp`));
+  const tsize = thumbs.reduce((n, f) => n + (fs.existsSync(f) ? fs.statSync(f).size : 1e9), 0);
+  check('sahne küçük resimleri (webp) var, toplam ≤ 400 KB', thumbs.every((f) => fs.existsSync(f) && fs.readFileSync(f).subarray(8, 12).toString() === 'WEBP') && tsize <= 400 * 1024, `${(tsize / 1024).toFixed(1)} KB`);
+  const swTxt = fs.readFileSync(path.join(PROJECT_ROOT, 'public/sw.js'), 'utf8');
+  check('sw.js ön önbelleğinde tüm sahne küçük resimleri', SCENES.every((sc) => swTxt.includes(`'${sc.id}'`)) && /scenes\/\$\{id\}\.webp/.test(swTxt));
   const mk = (await import('node:child_process')).spawnSync('node', ['tests/ui/make-pages.mjs', '--check'], { cwd: PROJECT_ROOT, encoding: 'utf8' });
   check('kilavuz.html / gizlilik.html güncel (strings.js’den üretilmiş)', mk.status === 0, (mk.stderr || '').trim());
 
@@ -904,7 +932,7 @@ async function docsChecks() {
         const txt = await page.evaluate(() => document.body.innerText);
         check('gizlilik.html: yürürlük 7 Kasım 2026, sorumlu Kuzey Çetin, GitHub Gizlilik Bildirimi + depo, İngilizce özet, e-posta yok', /7 Kasım 2026/.test(txt) && /Kuzey Çetin/.test(txt) && (await page.$('a[href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement"]')) && (await page.$('a[href="https://github.com/kuzeycetin3806-debug/Karadelikprojesi"]')) && (await page.$('a[href="https://www.netlify.com/privacy/"]')) && (await page.$('section[lang=en]')) && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(txt));
       } else {
-        check('kilavuz.html: 8 bölüm, Kontroller/Ne görüyorsunuz/iOS kurulum içerikleri', info.secs === 8 && /Paylaş/.test(await page.evaluate(() => document.body.innerText)));
+        check('kilavuz.html: 9 bölüm, Kara delik nedir/Sahneler/Ayarlar/iOS kurulum içerikleri', info.secs === 9 && /Paylaş/.test(await page.evaluate(() => document.body.innerText)));
       }
     }
     await ctx.close();
@@ -937,6 +965,165 @@ async function docsChecks() {
   check('CSS: yazı boyutları rem (dinamik tip), sistem yazı tipi, @supports yedekleri', !/font-size:\s*[\d.]+px/.test(css) && /-apple-system-body/.test(css) && /-apple-system, BlinkMacSystemFont, 'SF Pro Text'/.test(css) && /@supports not \(\(-webkit-backdrop-filter/.test(css) && /prefers-contrast: more/.test(css) && /prefers-reduced-motion: reduce/.test(css));
   const sw = fs.readFileSync(path.join(PROJECT_ROOT, 'public/sw.js'), 'utf8');
   check('sw.js: sayfalar önbellek kabuğunda, VERSION satırı biçimi korunmuş', /'kilavuz\.html'/.test(sw) && /'gizlilik\.html'/.test(sw) && /^const VERSION = '[^']*';$/m.test(sw));
+}
+
+// ================================================================== SAHNELER · BİLGİ KARTI · ETİKETLER
+async function sceneChecks() {
+  console.log('\n== Sahne şeridi, bilgi kartı, etiketler (1440×900) ==');
+  const { SCENES } = await import('../../src/ui/scenes.js');
+  const { S } = await import('../../src/ui/strings.js');
+  const { ctx, page } = await openPage({ width: 1440, height: 900 });
+  await cheap(page);
+  await page.click('.tip-ok').catch(() => {});
+
+  // --- yerleşim: ≤ 2 kalıcı düğme + şerit
+  const vis = await page.evaluate(() => [...document.querySelectorAll('#ui button, #ui input, #ui summary')].filter((e) => {
+    const b = e.getBoundingClientRect(); const cs = getComputedStyle(e);
+    return b.width > 0 && b.height > 0 && cs.visibility !== 'hidden' && !e.closest('[hidden]') && !e.closest('[inert]') && !e.closest('.sr-only') && !e.closest('#scene-strip') && !e.closest('.banner') && !e.closest('.tip');
+  }).map((e) => e.id || e.className));
+  check('ekranda en fazla 2 kalıcı düğme (şerit kartları ve geçici ipucu/bildirim hariç)', vis.length <= 2 && vis.includes('info-toggle') && vis.includes('menu-toggle'), vis.join());
+  check('sahne şeridi: 8 kart, her kartta gerçek küçük resim yüklendi (naturalWidth > 0)', await page.evaluate(() => { const c = [...document.querySelectorAll('.scene-card')]; return c.length === 8 && c.every((x) => { const i = x.querySelector('img'); return i && i.complete && i.naturalWidth > 0; }); }));
+  const stripCss = await page.evaluate(() => { const l = document.querySelector('.scene-list'); const st = document.getElementById('scene-strip'); return { ta: getComputedStyle(l).touchAction, ox: getComputedStyle(l).overflowX, pb: parseFloat(getComputedStyle(st).paddingBottom), outside: !document.getElementById('sahne').contains(st) }; });
+  check('şerit: touch-action pan-x, yatay kaydırılır, altı güvenli alan payı, kameranın DIŞINDA', stripCss.ta === 'pan-x' && stripCss.ox === 'auto' && stripCss.pb >= 12 && stripCss.outside, JSON.stringify(stripCss));
+  check('varsayılan sahne seçili (aria-pressed)', (await page.getAttribute('.scene-card[data-scene=kerr09]', 'aria-pressed')) === 'true' && (await page.$$eval('.scene-card[aria-pressed=true]', (e) => e.length)) === 1);
+
+  // --- her kart doğru parametreleri yazar
+  for (const sc of SCENES) {
+    await page.click(`.scene-card[data-scene=${sc.id}]`);
+    await settleCamera(page);
+    await page.waitForFunction((a) => Math.abs(window.__karadelik.renderer.getParams().a - a) < 1e-9, sc.patch.a, { timeout: 10000 });
+    const p = await P(page);
+    const base = await page.evaluate(() => window.__karadelik.ui.defaults.fovY);
+    const okFov = sc.fovY == null ? p.fovY >= base - 1e-9 : p.fovY >= sc.fovY - 1e-9;
+    const ok = near(p.a, sc.patch.a, 1e-9) && p.prograde === sc.patch.prograde && near(p.thetaCam, sc.patch.thetaCam, 1e-6) && near(p.rCam, sc.patch.rCam, 1e-6) && Math.abs(p.phiCam) < 1e-6 && p.disk === true && okFov;
+    check(`sahne ${sc.id}: a=${sc.patch.a}, ${sc.patch.prograde ? 'prograd' : 'retrograd'}, θ=${(sc.patch.thetaCam / DEG).toFixed(0)}°, r=${sc.patch.rCam}`, ok, `a=${p.a} pro=${p.prograde} θ=${(p.thetaCam / DEG).toFixed(2)} r=${p.rCam.toFixed(3)} fov=${p.fovY}`);
+  }
+  // sahne seçince "sıfırla" o sahnenin kamerasına döner
+  await page.evaluate(() => window.__karadelik.ui.camera.setTarget({ phi: 1, theta: 40 * Math.PI / 180, r: 90 }, { instant: true }));
+  await page.mouse.dblclick(600, 450);
+  await settleCamera(page);
+  const rs = await P(page);
+  check('çift tıklama seçili sahnenin (alttan bakış) kamerasına döner', near(rs.thetaCam, 115 * DEG, 1e-6) && near(rs.rCam, 50, 1e-6));
+
+  // --- bilgi kartı: metin sahneye göre değişir
+  await page.click('.scene-card[data-scene=schwarzschild]');
+  await settleCamera(page);
+  await page.click('#info-toggle');
+  await page.waitForSelector('#scene-info', { state: 'visible' });
+  const t1 = { title: await page.textContent('#info-title'), text: await page.textContent('#info-text'), look: await page.$$eval('#info-look li', (e) => e.length) };
+  await page.click('.scene-card[data-scene=retro]');
+  await settleCamera(page);
+  const t2 = { title: await page.textContent('#info-title'), text: await page.textContent('#info-text') };
+  check('bilgi kartı: başlık ve açıklama seçili sahneye göre değişir (açıkken de)', t1.title === S.scenes.schwarzschild.title && t1.text === S.scenes.schwarzschild.text && t2.title === S.scenes.retro.title && t2.text === S.scenes.retro.text && t1.text !== t2.text && t1.look >= 3, `${t1.title} → ${t2.title}`);
+  const chips = await page.$$eval('[data-chip]', (e) => Object.fromEntries(e.map((x) => [x.dataset.chip, parseFloat(x.dataset.value)])));
+  check('bilgi kartı sayıları physics’ten: retrograd a=0,9 ISCO ve verim', near(chips.rIsco, iscoRadius(1, 0.9, false), 1e-12) && near(chips.eta, radiativeEfficiency(0.9, false), 1e-12) && near(chips.rPlus, horizonRadii(1, 0.9).rPlus, 1e-12), JSON.stringify(chips));
+  check('bilgi kartında “Neye bakmalı?” başlığı, Etiketler anahtarı (varsayılan KAPALI) ve “Kara delik nedir?” düğmesi', (await page.textContent('#scene-info')).includes('Neye bakmalı?') && !(await page.isChecked('#info-labels')) && !(await page.isVisible('#labels')) && (await page.isVisible('.info-whatis')));
+  await page.click('.info-whatis');
+  await page.waitForSelector('#dlg-guide[open]');
+  check('“Kara delik nedir?” kılavuzun ilgili bölümünü açar ve bilgi kartını kapatır', !(await page.isVisible('#scene-info')) && await page.evaluate(() => { const b = document.querySelector('#dlg-guide .dlg-body').getBoundingClientRect(); const t = document.getElementById('guide-whatis').getBoundingClientRect(); return t.top >= b.top - 2 && t.top < b.top + b.height * 0.5; }));
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('dlg-guide').open);
+  await page.click('#info-toggle');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#scene-info', { state: 'hidden' });
+  check('Esc bilgi kartını kapatır, odak “i” düğmesine döner', (await page.evaluate(() => document.activeElement?.id)) === 'info-toggle');
+
+  // --- etiketler: a=0, θ=90° (≈89,5°), r=50
+  await page.evaluate(() => window.__karadelik.ui.set({ a: 0, prograde: true, thetaCam: 90 * Math.PI / 180, rCam: 50, phiCam: 0, disk: true }));
+  await settleCamera(page);
+  await page.click('#info-toggle');
+  await page.click('label[for=info-labels]');
+  await page.waitForSelector('#labels', { state: 'visible' });
+  await page.evaluate(() => window.__karadelik.ui.closeInfo());
+  await sleep(400);
+  const lbl = () => page.evaluate(() => {
+    const out = {};
+    for (const e of document.querySelectorAll('.lbl')) { const b = e.getBoundingClientRect(); out[e.dataset.label] = { vis: !e.hidden && b.width > 0, x: b.x + b.width / 2, y: b.y + b.height / 2, text: e.textContent }; }
+    const c = document.getElementById('sahne').getBoundingClientRect();
+    return { out, c: { x: c.x, y: c.y, w: c.width, h: c.height }, note: !document.querySelector('.lbl-note').hidden };
+  });
+  let L = await lbl();
+  const pp = await P(page);
+  const sb = shadowBoundary(1, pp.a, pp.thetaCam, 180);
+  const al = sb.map((q) => q.alpha);
+  const cAlpha = (Math.max(...al) + Math.min(...al)) / 2;
+  const k = (L.c.h / 2) / (Math.tan(pp.fovY * Math.PI / 360) * pp.rCam);
+  const exp = { x: L.c.x + L.c.w / 2 + cAlpha * k, y: L.c.y + L.c.h / 2 };
+  const rad = 3 * Math.sqrt(3) * k;
+  const dist = Math.hypot(L.out.shadow.x - exp.x, L.out.shadow.y - exp.y);
+  check('etiketler açık (a=0, θ≈90°, r=50): 4 etiket görünür, metinleri sade', ['shadow', 'ring', 'lens', 'doppler'].every((n) => L.out[n]?.vis) && L.out.shadow.text === 'Gölge' && L.out.ring.text === 'Foton halkası' && L.out.lens.text === 'Diskin arka tarafı (ışık bükülmüş)' && L.out.doppler.text === 'Bize doğru gelen taraf — daha parlak (Doppler)', JSON.stringify(Object.fromEntries(Object.entries(L.out).map(([a, b]) => [a, b.vis]))));
+  check('“Gölge” etiketi gölge merkezine yakın (shadowBoundary → piksel, ±%5 gölge yarıçapı)', dist <= 0.05 * rad + 1.5, `fark ${dist.toFixed(2)} px, yarıçap ${rad.toFixed(1)} px, beklenen (${exp.x.toFixed(1)}, ${exp.y.toFixed(1)})`);
+  const outlineBox = await page.evaluate(() => { const b = document.querySelector('.lbl-outline').getBBox(); return { w: b.width, h: b.height }; });
+  check('gölge anahat çizgisi (shadowBoundary) çapı = 2·3√3 M karşılığı piksel (±%1)', Math.abs(outlineBox.w - 2 * rad) < 0.01 * 2 * rad && Math.abs(outlineBox.h - 2 * rad) < 0.01 * 2 * rad, `${outlineBox.w.toFixed(1)} × ${outlineBox.h.toFixed(1)} px, beklenen ${(2 * rad).toFixed(1)}`);
+  check('Doppler etiketi prograd diskte merkezin SOLUNDA (yaklaşan taraf α<0)', L.out.doppler.x < L.c.x + L.c.w / 2);
+  await page.evaluate(() => window.__karadelik.ui.set({ prograde: false }));
+  await page.waitForFunction(() => { const e = document.querySelector('.lbl[data-label=doppler]'); const b = e.getBoundingClientRect(); const c = document.getElementById('sahne').getBoundingClientRect(); return e.dataset.side === 'right' && b.x + b.width / 2 > c.x + c.width / 2; }, null, { timeout: 20000 }).catch(() => {});
+  L = await lbl();
+  check('retrograd diskte Doppler etiketi SAĞA geçer', L.out.doppler.x > L.c.x + L.c.w / 2, `x=${L.out.doppler.x?.toFixed(0)} merkez=${(L.c.x + L.c.w / 2).toFixed(0)} vis=${L.out.doppler.vis}`);
+  await page.evaluate(() => window.__karadelik.ui.set({ prograde: true, thetaCam: 115 * Math.PI / 180 }));
+  await settleCamera(page);
+  await page.waitForFunction(() => document.getElementById('labels').dataset.side === '-1', null, { timeout: 20000 });
+  await sleep(200);
+  L = await lbl();
+  check('diskin altından bakışta (θ>90°) merceklenmiş yay etiketi gölgenin ALTINDA', L.out.lens.vis && L.out.lens.y > L.out.shadow.y, `lens y=${L.out.lens.y.toFixed(0)} shadow y=${L.out.shadow.y.toFixed(0)}`);
+  await page.evaluate(() => window.__karadelik.ui.set({ thetaCam: 10 * Math.PI / 180 }));
+  await settleCamera(page);
+  await page.waitForFunction(() => document.querySelector('.lbl[data-label=lens]').hidden, null, { timeout: 20000 });
+  await sleep(200);
+  L = await lbl();
+  check('yüz yüze bakışta (10°) yay ve Doppler etiketleri gizlenir; gölge/halka kalır', !L.out.lens.vis && !L.out.doppler.vis && L.out.shadow.vis && L.out.ring.vis);
+  await page.evaluate(() => window.__karadelik.ui.set({ thetaCam: 75 * Math.PI / 180, rCam: 12 }));
+  await settleCamera(page);
+  await page.waitForFunction(() => document.getElementById('labels').dataset.state === 'near', null, { timeout: 20000 });
+  await sleep(200);
+  L = await lbl();
+  check('r < 15 M: etiketler gizlenir, “uzaktan bakışta gösterilir” notu görünür', Object.values(L.out).every((x) => !x.vis) && L.note);
+  await page.evaluate(() => window.__karadelik.ui.set({ rCam: 50, disk: false }));
+  await settleCamera(page);
+  await page.waitForFunction(() => document.getElementById('labels').dataset.state === 'on' && document.querySelector('.lbl[data-label=lens]').hidden, null, { timeout: 20000 });
+  await sleep(200);
+  L = await lbl();
+  check('disk kapalıyken disk etiketleri (yay, Doppler) gizlenir', !L.out.lens.vis && !L.out.doppler.vis && L.out.shadow.vis);
+  await page.evaluate(() => window.__karadelik.ui.set({ disk: true }));
+  await page.evaluate(() => window.__karadelik.ui.openInfo());
+  await page.click('label[for=info-labels]');
+  check('Etiketler anahtarı kapatınca katman gizlenir (ve açıkken yeniden açılır)', !(await page.isVisible('#labels')));
+  await page.evaluate(() => window.__karadelik.ui.closeInfo());
+  await ctx.close();
+
+  // --- yumuşak geçiş (azaltılmış hareket KAPALI)
+  {
+    const r = await openPage({ width: 1024, height: 700 });
+    await r.page.emulateMedia({ reducedMotion: 'no-preference' });
+    await cheap(r.page);
+    await r.page.evaluate(() => { window.__karadelik.ui.applyScene('close'); });
+    const mid = await r.page.evaluate(() => ({ active: window.__karadelik.ui.camera.isActive(), p: window.__karadelik.renderer.getParams() }));
+    await settleCamera(r.page);
+    await r.page.waitForFunction(() => Math.abs(window.__karadelik.renderer.getParams().a - 0.9) < 1e-9);
+    const fin = await P(r.page);
+    check('sahne geçişi yumuşak (kamera hemen sıçramaz) ve sonunda tam hedefte', mid.active && Math.abs(mid.p.rCam - 12) > 1 && near(fin.rCam, 12, 1e-6) && fin.fovY >= 70 - 1e-9, `ilk r=${mid.p.rCam.toFixed(1)} → ${fin.rCam.toFixed(2)}`);
+    await r.ctx.close();
+  }
+
+  // --- telefon: şerit kaydırması kamerayı oynatmaz
+  {
+    const r = await openPage({ width: 375, height: 812, touch: true });
+    await cheap(r.page);
+    await r.page.click('.tip-ok').catch(() => {});
+    const before = await P(r.page);
+    const box = await r.page.evaluate(() => { const b = document.querySelector('.scene-list').getBoundingClientRect(); return { x: b.x, y: b.y + b.height / 2, w: b.width, sl: document.querySelector('.scene-list').scrollLeft, over: document.querySelector('.scene-list').scrollWidth > b.width }; });
+    await touchSeq(r.page, lerpPts([{ x: box.x + 300, y: box.y }], [{ x: box.x + 60, y: box.y + 12 }], 12));
+    await sleep(500);
+    const after = await P(r.page);
+    const sl2 = await r.page.evaluate(() => document.querySelector('.scene-list').scrollLeft);
+    check('telefon: şeridi yatay kaydırmak kamerayı oynatmaz, şerit kayar', box.over && sl2 > box.sl + 50 && after.phiCam === before.phiCam && after.thetaCam === before.thetaCam && after.rCam === before.rCam, `scrollLeft ${box.sl} → ${sl2}`);
+    const geo = await r.page.evaluate(() => { const s = document.getElementById('scene-strip').getBoundingClientRect(); const cards = [...document.querySelectorAll('.scene-card')].map((c) => c.getBoundingClientRect()); return { bottom: s.bottom, vh: innerHeight, h: Math.min(...cards.map((c) => c.height)) }; });
+    check('telefon: şerit alt kenarda, kartlar ≥ 44 px yüksek', Math.abs(geo.bottom - geo.vh) < 1.5 && geo.h >= 44, JSON.stringify(geo));
+    await r.page.tap('.scene-card[data-scene=faceOn]');
+    await settleCamera(r.page);
+    check('telefon: karta dokunmak sahneyi seçer', near((await P(r.page)).thetaCam, 10 * DEG, 1e-6));
+    await r.ctx.close();
+  }
 }
 
 // ================================================================== APPLE PROFİLLERİ (Chromium + Playwright cihaz profilleri)
@@ -981,6 +1168,24 @@ async function appleChecks() {
     await page.evaluate(() => window.__karadelik.ui.close());
     await sleep(500);
     await shot('ana-basit');
+    // v3: ilk açılış ipucu kapatılır; sahne şeridi, bilgi kartı ve etiketler
+    await page.click('.tip-ok').catch(() => {});
+    await sleep(500);
+    await shot('ana-sahneler');
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] ana ekran + sahne şeridi: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    check(`[${tag}] sahne şeridi alt kenarda ve görünüm içinde`, await page.evaluate(() => { const s = document.getElementById('scene-strip').getBoundingClientRect(); return Math.abs(s.bottom - innerHeight) < 1.5 && s.left >= 0 && s.right <= innerWidth + 1; }));
+    await page.evaluate(() => window.__karadelik.ui.openInfo());
+    await sleep(450);
+    await shot('bilgi-karti');
+    check(`[${tag}] bilgi kartı görünüm içinde, şeridin üstünde, kaydırılabilir`, await page.evaluate(() => { const c = document.getElementById('scene-info').getBoundingClientRect(); const s = document.getElementById('scene-strip').getBoundingClientRect(); return c.left >= -1 && c.right <= innerWidth + 1 && c.top >= 0 && c.bottom <= s.top + 1; }));
+    if (v.touch) { const t = await smallTargets(page); check(`[${tag}] bilgi kartı: dokunma hedefleri ≥ 44 px`, t.length === 0, t.slice(0, 6).join('; ')); }
+    await page.evaluate(() => { window.__karadelik.ui.closeInfo(); window.__karadelik.ui.setLabels(true); });
+    await settleRender(page, 600, 15000);
+    await sleep(500);
+    await shot('etiketler');
+    const lbOk = await page.evaluate(() => [...document.querySelectorAll('.lbl:not([hidden])')].every((e) => { const b = e.getBoundingClientRect(); const s = document.getElementById('scene-strip').getBoundingClientRect(); return b.left >= -1 && b.right <= innerWidth + 1 && b.top >= 0 && b.bottom <= s.top + 1; }));
+    check(`[${tag}] etiketler görünüm içinde, şerit/araç düğmeleriyle çakışmıyor`, lbOk);
+    await page.evaluate(() => window.__karadelik.ui.setLabels(false));
     // overscroll / dokunma / uzun basma
     const css = await page.evaluate(() => ({
       body: getComputedStyle(document.body).overscrollBehaviorY, html: getComputedStyle(document.documentElement).overscrollBehaviorY,
@@ -1067,8 +1272,9 @@ try {
   else if (ONLY === 'simple') await simpleChecks();
   else if (ONLY === 'docs') await docsChecks();
   else if (ONLY === 'apple') await appleChecks();
+  else if (ONLY === 'scenes') await sceneChecks();
   else {
-    if (ONLY !== 'shots') { manifestChecks(); await logicDesktop(); await logicTouch(); await shellChecks(); await simpleChecks(); await docsChecks(); }
+    if (ONLY !== 'shots') { manifestChecks(); await logicDesktop(); await logicTouch(); await shellChecks(); await simpleChecks(); await docsChecks(); await sceneChecks(); }
     if (ONLY !== 'logic') { await screenshots(); await pwaScreens(); await appleChecks(); }
   }
 } catch (e) {

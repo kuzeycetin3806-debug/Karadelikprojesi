@@ -15,6 +15,7 @@ const WHEEL_SPEED = 0.0012; // ln(r) / deltaY birimi
 const KEY_ANGLE = 3 * DEG;
 const KEY_ZOOM = 0.08; // ln(r) adımı
 const SMOOTH_RATE = 18; // 1/s (üstel yaklaşma)
+const SCENE_RATE = 5; // 1/s: sahne geçişlerinde daha yumuşak (≈ 1,5–2 s)
 const INERTIA_DECAY = 3.2; // 1/s
 const TAP_MS = 300;
 const DOUBLE_TAP_MS = 350;
@@ -48,6 +49,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
     return { phi: p.phiCam, theta: p.thetaCam, r: p.rCam };
   })();
   let rMin = rMinFor(renderer.getParams().a);
+  let rate = SMOOTH_RATE;
 
   const cur = { phi: home.phi, theta: home.theta, logr: Math.log(home.r) };
   const tgt = { ...cur };
@@ -111,7 +113,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
     }
     tgt.logr = clampLogR(tgt.logr);
 
-    const k = 1 - Math.exp(-SMOOTH_RATE * dt);
+    const k = 1 - Math.exp(-rate * dt);
     cur.phi += (tgt.phi - cur.phi) * k;
     const nextTheta = cur.theta + (tgt.theta - cur.theta) * k;
     cur.theta = nextTheta > BAND_LO && nextTheta < BAND_HI ? (tgt.theta > cur.theta ? BAND_HI : BAND_LO) : nextTheta;
@@ -145,9 +147,15 @@ export function createCameraController(canvas, renderer, opts = {}) {
 
   // ---------------------------------------------------------------- API
   /** Hedefi ayarla (yumuşak geçiş). Alanlar: phi, theta (rad), r (M). */
-  function setTarget({ phi, theta, r } = {}, { instant = false } = {}) {
+  function setTarget({ phi, theta, r } = {}, { instant = false, slow = false } = {}) {
     adoptExternal();
-    if (phi !== undefined) tgt.phi = phi;
+    rate = slow && !instant ? SCENE_RATE : SMOOTH_RATE;
+    if (phi !== undefined) {
+      // En kısa yoldan dön: eksenel simetri nedeniyle φ → φ ± 2π görüntüyü değiştirmez (çok turlu dönüşü önler).
+      const k = Math.round((cur.phi - phi) / (2 * Math.PI));
+      if (k !== 0) { cur.phi -= 2 * Math.PI * k; tgt.phi -= 2 * Math.PI * k; }
+      tgt.phi = phi;
+    }
     if (theta !== undefined) setTheta(theta, theta - tgt.theta);
     if (r !== undefined) tgt.logr = clampLogR(Math.log(r));
     vel.phi = vel.theta = 0;
@@ -165,8 +173,13 @@ export function createCameraController(canvas, renderer, opts = {}) {
     wake();
   }
 
-  function reset() {
-    setTarget({ phi: home.phi, theta: home.theta, r: home.r });
+  function reset(opts) {
+    setTarget({ phi: home.phi, theta: home.theta, r: home.r }, opts);
+  }
+
+  /** Çift dokunma / Home / reset() bu görünüme döner (seçili sahnenin kamerası). */
+  function setHome({ phi, theta, r }) {
+    home.phi = phi; home.theta = theta; home.r = r;
   }
 
   function getTarget() {
@@ -180,6 +193,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
     canvas.setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     opts.onUserInput?.();
+    rate = SMOOTH_RATE;
     if (pointers.size === 1) {
       dragging = true;
       vel.phi = vel.theta = 0;
@@ -257,6 +271,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
     e.preventDefault();
     adoptExternal();
     opts.onUserInput?.();
+    rate = SMOOTH_RATE;
     const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
     tgt.logr = clampLogR(tgt.logr + clamp(e.deltaY * unit, -300, 300) * WHEEL_SPEED);
     wake();
@@ -285,6 +300,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
       default: handled = false;
     }
     if (handled) {
+      rate = SMOOTH_RATE;
       e.preventDefault();
       opts.onUserInput?.();
       wake();
@@ -303,6 +319,7 @@ export function createCameraController(canvas, renderer, opts = {}) {
     setTarget,
     setSpin,
     reset,
+    setHome,
     getTarget,
     isActive: () => raf !== 0 || dragging,
     dispose() {

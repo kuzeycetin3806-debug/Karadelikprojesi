@@ -37,7 +37,7 @@ export function createPostChain(renderer, opts = {}) {
 
   const uDown = {
     uSrc: { value: null }, uSrcTexel: { value: new Vector2() }, uDstInv: { value: new Vector2() },
-    uExposure: { value: 1 }, uFirst: { value: 0 },
+    uExposure: { value: 1 }, uFirst: { value: 0 }, uCheap: { value: 0 },
   };
   const uUp = {
     uLow: { value: null }, uHigh: { value: null }, uLowTexel: { value: new Vector2() }, uDstInv: { value: new Vector2() },
@@ -98,13 +98,18 @@ export function createPostChain(renderer, opts = {}) {
     renderer.render(scene, cam);
   }
 
-  /** Bloom görüntüsünü (U0, iz sürme çözünürlüğünün yarısı) üretir. `exposure` ilk seviyede uygulanır. */
-  function bloom(srcTexture, w, h, exposure, radius) {
+  /**
+   * Bloom görüntüsünü (U0, iz sürme çözünürlüğünün yarısı) üretir. `exposure` ilk seviyede uygulanır.
+   * cheap=true (mobil/düşük kademe, ESTETİK kalite ödünü): ilk seviye 13 yerine 4 örnek, 5 yerine 4 seviye (`bloomNorm(radius, levels)` aynı seviye sayısıyla).
+   */
+  function bloom(srcTexture, w, h, exposure, radius, cheap = false) {
+    const LEVELS = cheap ? BLOOM_LEVELS - 1 : BLOOM_LEVELS;
     ensure(w, h);
     let prevTex = srcTexture;
     let pw = w;
     let ph = h;
-    for (let i = 0; i < BLOOM_LEVELS; i++) {
+    uDown.uCheap.value = cheap ? 1 : 0;
+    for (let i = 0; i < LEVELS; i++) {
       const dst = down[i];
       uDown.uSrc.value = prevTex;
       uDown.uSrcTexel.value.set(1 / pw, 1 / ph);
@@ -116,9 +121,9 @@ export function createPostChain(renderer, opts = {}) {
       pw = dst.width;
       ph = dst.height;
     }
-    let low = down[BLOOM_LEVELS - 1];
+    let low = down[LEVELS - 1];
     uUp.uRadius.value = radius;
-    for (let i = BLOOM_LEVELS - 2; i >= 0; i--) {
+    for (let i = LEVELS - 2; i >= 0; i--) {
       const dst = up[i];
       uUp.uLow.value = low.texture;
       uUp.uHigh.value = down[i].texture;
@@ -131,9 +136,9 @@ export function createPostChain(renderer, opts = {}) {
   }
 
   /** Σ_{i<L} radius^i : bloom toplamının normalizasyonu (bloomStrength = sahne enerjisinin yeniden dağıtılan kesri). */
-  function bloomNorm(radius) {
+  function bloomNorm(radius, cheap = false) {
     let s = 0;
-    for (let i = 0; i < BLOOM_LEVELS; i++) s += radius ** i;
+    for (let i = 0; i < (cheap ? BLOOM_LEVELS - 1 : BLOOM_LEVELS); i++) s += radius ** i;
     return s;
   }
 

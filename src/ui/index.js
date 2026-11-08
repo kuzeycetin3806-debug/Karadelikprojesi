@@ -8,6 +8,11 @@ import { createPanel } from './panel.js';
 import { createDialogs } from './dialogs.js';
 import { canInstall, onInstallChange, promptInstall } from './pwa.js';
 import { PREF_KEYS, readPref, writePref } from './prefs.js';
+import { SCENES, DEFAULT_SCENE, sceneById, sceneFov } from './scenes.js';
+import { createSceneStrip } from './sceneStrip.js';
+import { createInfoCard } from './infoCard.js';
+import { createLabels } from './labels.js';
+import { fixed, sig } from './format.js';
 
 const CAMERA_KEYS = ['phiCam', 'thetaCam', 'rCam'];
 const PHONE_MQ = '(max-width: 699px)';
@@ -15,10 +20,17 @@ const PHONE_MQ = '(max-width: 699px)';
 export function createUI(renderer, { canvas, root = document.body } = {}) {
   if (!canvas) throw new TypeError('createUI: canvas gerekli');
 
-  // Dokunmatik / kaba imleç cihazlarda README §3.5 önerisi: mobil kalite + pil modu (kullanıcı panelden değiştirebilir).
+  // Performans: renderer'ın 'auto' modu (cihaza göre çözünürlüğü kendisi ayarlar) kullanılır; arayüz kendi mobil varsayılanını koymaz.
+  // 'auto' henüz yoksa (RangeError) eski davranışa düşülür: dokunmatik cihazda mobil kalite + pil modu (README §3.5).
   const coarse = globalThis.matchMedia?.('(pointer: coarse)').matches;
   const defaults = renderer.getParams();
-  if (coarse) renderer.setParams({ quality: 'mobile', performance: 'battery', resolutionScale: 0.75 });
+  let hasAuto = false;
+  try {
+    renderer.setParams({ performance: 'auto' });
+    hasAuto = renderer.getParams().performance === 'auto';
+  } catch {
+    if (coarse) renderer.setParams({ quality: 'mobile', performance: 'battery', resolutionScale: 0.75 });
+  }
   // Dikey (portre) ekranlarda yatay görüş çok daralır ve disk kırpılır → başlangıç fovY'sini en/boy oranına göre hafifçe artır.
   const aspect = (globalThis.innerWidth || 1) / (globalThis.innerHeight || 1);
   if (aspect < 1.2) {
@@ -27,20 +39,24 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
   }
   const resetBase = { ...renderer.getParams() };
 
-  const state = { mass: null, open: false };
+  const state = { mass: null, open: false, infoOpen: false, scene: DEFAULT_SCENE };
+  const reducedMq = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
   const phoneMq = globalThis.matchMedia?.(PHONE_MQ);
 
   canvas.setAttribute('tabindex', '0');
   canvas.setAttribute('role', 'img');
   canvas.setAttribute('aria-label', S.canvasLabel);
 
-  // ---- yenileme (rAF ile birleştirilir)
+  // ---- yenileme (rAF ile birleştirilir): başlık, etiketler, bilgi kartı sayıları, ayar paneli
   let refreshQueued = false;
   function scheduleRefresh() {
-    if (refreshQueued || !state.open) return;
+    if (refreshQueued) return;
     refreshQueued = true;
     requestAnimationFrame(() => {
       refreshQueued = false;
+      updateCaption();
+      labels.schedule();
+      if (state.infoOpen) infoCard.refreshNumbers();
       if (state.open) panel.refresh();
     });
   }
@@ -52,7 +68,7 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     h('ul', null,
       tipRow(ICONS.orbit, S.tip.drag),
       tipRow(ICONS.pinch, S.tip.pinch),
-      tipRow(ICONS.sliders, S.tip.settings)),
+      tipRow(ICONS.scenes, S.tip.settings)),
     h('button.btn.tip-ok', { type: 'button', onClick: () => hideHint() }, S.tip.ok));
   let tipGone = readPref(PREF_KEYS.tipSeen) === '1';
   if (tipGone) tipEl.hidden = true;
@@ -81,30 +97,86 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     scheduleRefresh();
   }
 
+  // ---- sahne durumu: kullanıcı fiziksel/kamera ayarını Ayarlar'dan değiştirirse görünüm "özel" olur
+  const CUSTOM_KEYS = ['a', 'prograde', 'thetaCam', 'rCam', 'phiCam', 'fovY', 'disk'];
+  let tweenRaf = 0;
+  const cancelTween = () => { if (tweenRaf) cancelAnimationFrame(tweenRaf); tweenRaf = 0; };
+  /** Sayısal parametreleri (a, fovY) yumuşakça hedefe götürür; azaltılmış harekette anında uygular. */
+  function tweenParams(target, ms = 900) {
+    cancelTween();
+    const p0 = renderer.getParams();
+    const from = Object.fromEntries(Object.keys(target).map((k) => [k, p0[k]]));
+    const t0 = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / ms);
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const patch = {};
+      for (const k of Object.keys(target)) patch[k] = t >= 1 ? target[k] : from[k] + (target[k] - from[k]) * e;
+      set(patch);
+      tweenRaf = t < 1 ? requestAnimationFrame(step) : 0;
+    };
+    tweenRaf = requestAnimationFrame(step);
+  }
+
+  /** Sahneyi uygular: parametre kümesini renderer'a yazar, kamera yumuşakça geçer. */
+  function applyScene(id, { instant = false } = {}) {
+    const sc = sceneById(id);
+    if (!sc) return false;
+    cancelTween();
+    const inst = instant || !!reducedMq?.matches;
+    const { a, prograde, thetaCam, phiCam, rCam, disk } = sc.patch;
+    const fovY = sceneFov(sc, resetBase.fovY);
+    state.scene = id;
+    set({ prograde, disk });
+    cam.setHome({ phi: phiCam, theta: thetaCam, r: rCam });
+    if (inst) {
+      set({ a, fovY });
+      cam.setTarget({ phi: phiCam, theta: thetaCam, r: rCam }, { instant: true });
+    } else {
+      tweenParams({ a, fovY });
+      cam.setTarget({ phi: phiCam, theta: thetaCam, r: rCam }, { slow: true });
+    }
+    strip.select(id);
+    infoCard.render(id);
+    canvas.setAttribute('aria-label', `${S.canvasLabel} ${S.scenes[id].title}.`);
+    scheduleRefresh();
+    return true;
+  }
+  /** Ayarlar panelinden gelen kullanıcı değişiklikleri. */
+  function userSet(patch) {
+    cancelTween();
+    if (state.scene && Object.keys(patch).some((k) => CUSTOM_KEYS.includes(k))) {
+      state.scene = null;
+      strip.select(null);
+      infoCard.render(null);
+      canvas.setAttribute('aria-label', S.canvasLabel);
+    }
+    set(patch);
+  }
+
   const panel = createPanel({
     renderer,
-    set,
-    applyPreset: (patch) => set(patch),
+    hasAuto,
+    set: userSet,
+    applyPreset: (pr) => { if (!applyScene(pr.sceneId ?? pr.id)) userSet(pr.patch); },
     getMass: () => state.mass,
     setMass: (v) => { state.mass = v; panel.invalidateInfo(); scheduleRefresh(); },
     onClose: () => setOpen(false),
     onResetAll: () => {
+      cancelTween();
       const { phiCam, thetaCam, rCam, ...rest } = resetBase;
       set(rest);
-      cam.reset();
+      applyScene(DEFAULT_SCENE, { instant: true });
     },
   });
 
-  // ---- araç çubuğu: birincil eylemler (Ayarlar, Sıfırla, Ekran görüntüsü) + "…" menüsü (ikincil eylemler)
-  const toggleBtn = h(
-    'button.btn.tb-btn.tb-panel',
-    { type: 'button', id: 'panel-toggle', 'aria-controls': 'panel', 'aria-expanded': 'false', 'aria-label': S.toolbar.panelToggleLabel, onClick: () => setOpen(!state.open) },
-    icon(...ICONS.sliders),
-    h('span.tb-text', null, S.toolbar.panelOpen)
+  // ---- kalıcı düğmeler: (1) "i" bilgi (sol üst), (2) "…" menü (sağ üst). Başka kalıcı düğme yok.
+  const infoBtn = h(
+    'button.btn.tb-btn.tb-icon.tb-info',
+    { type: 'button', id: 'info-toggle', 'aria-controls': 'scene-info', 'aria-expanded': 'false', 'aria-label': S.toolbar.infoLabel, title: S.toolbar.info, onClick: () => setInfoOpen(!state.infoOpen) },
+    icon(...ICONS.info)
   );
-  const resetBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.resetCamera, title: S.toolbar.resetCamera, onClick: () => cam.reset() }, icon(...ICONS.reset));
-  const shotBtn = h('button.btn.tb-btn.tb-icon', { type: 'button', 'aria-label': S.toolbar.screenshot, title: S.toolbar.screenshot, onClick: () => { screenshot(); } }, icon(...ICONS.camera));
-  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': S.appTitle }, toggleBtn, resetBtn, shotBtn);
+  const toolbar = h('div.toolbar', { role: 'toolbar', 'aria-label': S.toolbar.barLabel }, infoBtn);
 
   // yükle (beforeinstallprompt) · tam ekran
   const installBtn2 = h('button.btn.install-wide', { type: 'button', hidden: true, 'data-install': '', onClick: () => { promptInstall(); } }, icon(...ICONS.download), h('span', null, S.toolbar.install));
@@ -128,14 +200,17 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
   }, icon(...ICONS.more));
   const mkItem = (id, ic, label, fn, attrs) => h('button.menu-item', {
     type: 'button', role: 'menuitem', tabindex: '-1', 'data-menu': id, ...attrs,
-    onClick: () => { closeMenu(); fn(); },
+    onClick: () => { closeMenu({ focus: id === 'settings' ? false : true }); fn(); },
   }, icon(...ic), h('span', null, label));
+  const itemSettings = mkItem('settings', ICONS.sliders, S.toolbar.panelOpen, () => setOpen(!state.open));
+  const itemReset = mkItem('reset', ICONS.reset, S.toolbar.resetCamera, () => cam.reset());
+  const itemShot = mkItem('screenshot', ICONS.camera, S.toolbar.screenshot, () => { screenshot(); });
   const itemGuide = mkItem('guide', ICONS.book, S.toolbar.guide, () => dialogs.openGuide());
   const itemAbout = mkItem('about', ICONS.info, S.toolbar.about, () => dialogs.openAbout());
   const itemPrivacy = mkItem('privacy', ICONS.shield, S.toolbar.privacy, () => dialogs.openPrivacy());
   const itemFs = mkItem('fullscreen', ICONS.fullscreen, S.toolbar.fullscreen, toggleFullscreen, { hidden: !fsApi, 'data-install': null });
   const itemInstall = mkItem('install', ICONS.download, S.toolbar.install, () => { promptInstall(); }, { hidden: true, 'data-install': '' });
-  const menu = h('div#app-menu.menu', { role: 'menu', 'aria-label': S.toolbar.menuLabel, hidden: true }, itemGuide, itemAbout, itemPrivacy, itemFs, itemInstall);
+  const menu = h('div#app-menu.menu', { role: 'menu', 'aria-label': S.toolbar.menuLabel, hidden: true }, itemSettings, itemReset, itemShot, itemGuide, itemAbout, itemPrivacy, itemFs, itemInstall);
   const menuItems = () => [...menu.querySelectorAll('.menu-item')].filter((b) => !b.hidden);
   function openMenu({ focusFirst = false } = {}) {
     menu.hidden = false;
@@ -201,6 +276,7 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     const kb = vv ? Math.max(0, globalThis.innerHeight - vv.height - vv.offsetTop) : 0;
     document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`);
     document.body.classList.toggle('kb-open', kb > 80);
+    labels.schedule();
   };
   vv?.addEventListener('resize', syncViewport);
   vv?.addEventListener('scroll', syncViewport);
@@ -208,31 +284,108 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     if (e.target instanceof HTMLInputElement && e.target.type === 'number') setTimeout(() => e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }), 320);
   };
   panel.el.addEventListener('focusin', onFocusIn);
-  syncViewport();
 
   const toast = h('div.toast', { role: 'status', 'aria-live': 'polite' });
 
-  const ui = h('div#ui.ui', null, toolbar, utilbar, tipEl, panel.el, toast);
+  // ---- sahne şeridi · bilgi kartı · başlık · etiketler
+  const strip = createSceneStrip({ onSelect: (id) => { closeMenu({ focus: false }); applyScene(id); } });
+  const infoCard = createInfoCard({
+    getParams: () => renderer.getParams(),
+    onClose: () => setInfoOpen(false),
+    onLabels: (v) => labels.setEnabled(v),
+    onWhatIs: () => { setInfoOpen(false, { focus: false }); dialogs.openGuide('whatis'); },
+  });
+  const labels = createLabels({
+    canvas,
+    getParams: () => renderer.getParams(),
+    getBounds: () => {
+      const top = infoBtn.getBoundingClientRect().bottom + 8;
+      const sr = strip.el.getBoundingClientRect();
+      const bottom = (sr.height > 0 ? sr.top : globalThis.innerHeight) - 8;
+      return { top, bottom };
+    },
+  });
+  const capTitle = h('strong.cap-title');
+  const capSub = h('span.cap-sub');
+  const caption = h('div#scene-caption.scene-caption', null, capTitle, capSub);
+  function updateCaption() {
+    const p = renderer.getParams();
+    capTitle.textContent = state.scene ? S.scenes[state.scene].short : S.sceneCustom.short;
+    capSub.textContent = `a = ${fixed(p.a, 2)} · ${fixed((p.thetaCam * 180) / Math.PI, 0)}° · ${sig(p.rCam, 2)} M`;
+  }
+
+  const ui = h('div#ui.ui', null, toolbar, caption, utilbar, labels.el, strip.el, tipEl, infoCard.el, panel.el, toast);
   root.append(ui);
 
-  // ---- aç / kapa
+  // şeridin yüksekliği → --strip-h (ipucu, bildirim, bilgi kartı şeridin üstünde durur)
+  const syncStrip = () => {
+    const hgt = strip.el.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--strip-h', `${Math.round(hgt)}px`);
+    labels.schedule();
+  };
+  const stripRO = typeof ResizeObserver === 'function' ? new ResizeObserver(syncStrip) : null;
+  stripRO?.observe(strip.el);
+  const canvasRO = typeof ResizeObserver === 'function' ? new ResizeObserver(() => labels.schedule()) : null;
+  canvasRO?.observe(canvas);
+  window.addEventListener('resize', syncStrip);
+  syncStrip();
+  syncViewport();
+
+  // ---- bilgi kartı aç / kapa
+  function setInfoOpen(open, { focus = true } = {}) {
+    open = !!open;
+    if (open === state.infoOpen) return;
+    const wasInside = infoCard.el.contains(document.activeElement);
+    state.infoOpen = open;
+    infoCard.el.hidden = !open;
+    infoBtn.setAttribute('aria-expanded', String(open));
+    infoBtn.classList.toggle('on', open);
+    document.body.classList.toggle('info-open', open);
+    if (open) {
+      if (state.open) setOpen(false, { focus: false });
+      closeMenu({ focus: false });
+      infoCard.render(state.scene);
+      hideHint();
+      infoCard.body.focus({ preventScroll: true });
+    } else if (wasInside && focus) infoBtn.focus();
+  }
+  infoCard.el.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); setInfoOpen(false); }
+  });
+  // Telefon: bilgi kartı açıkken sahneye dokunmak (kamerayı kullanmak) kartı kapatır; başlıktan aşağı kaydırmak da.
+  const onCanvasDown = () => { if (state.infoOpen && phoneMq?.matches) setInfoOpen(false, { focus: false }); };
+  canvas.addEventListener('pointerdown', onCanvasDown);
+  let infoSwipe = null;
+  infoCard.head.addEventListener('pointerdown', (e) => {
+    if (!phoneMq?.matches || e.target.closest('button')) return;
+    infoSwipe = { y: e.clientY, id: e.pointerId };
+  });
+  infoCard.head.addEventListener('pointermove', (e) => {
+    if (infoSwipe && e.pointerId === infoSwipe.id && e.clientY - infoSwipe.y > 50) { infoSwipe = null; setInfoOpen(false); }
+  });
+  const endInfoSwipe = () => { infoSwipe = null; };
+  infoCard.head.addEventListener('pointerup', endInfoSwipe);
+  infoCard.head.addEventListener('pointercancel', endInfoSwipe);
+
+  // ---- ayarlar aç / kapa
   function setOpen(open, { focus = true } = {}) {
     open = !!open;
     const wasInside = panel.el.contains(document.activeElement);
     state.open = open;
     document.body.classList.toggle('ui-open', open);
     ui.classList.toggle('open', open);
-    toggleBtn.setAttribute('aria-expanded', String(open));
     panel.el.setAttribute('aria-hidden', String(!open));
     if (open) {
+      if (state.infoOpen) setInfoOpen(false, { focus: false });
       panel.el.removeAttribute('inert');
       panel.refresh();
       panel.startStats();
     } else {
       panel.el.setAttribute('inert', '');
       panel.stopStats();
-      if (wasInside && focus) toggleBtn.focus();
+      if (wasInside && focus) menuBtn.focus();
     }
+    labels.schedule();
   }
   panel.el.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
@@ -284,7 +437,12 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     });
   }
 
-  setOpen(globalThis.matchMedia ? !phoneMq.matches : true, { focus: false });
+  // başlangıç: ayarlar ve bilgi kartı kapalı; varsayılan sahne seçili (renderer varsayılanıyla aynı görünüm)
+  setOpen(false, { focus: false });
+  strip.select(state.scene);
+  infoCard.render(state.scene);
+  cam.setHome({ phi: sceneById(state.scene).patch.phiCam, theta: sceneById(state.scene).patch.thetaCam, r: sceneById(state.scene).patch.rCam });
+  updateCaption();
 
   return {
     set,
@@ -293,6 +451,15 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     open: () => setOpen(true),
     close: () => setOpen(false),
     isOpen: () => state.open,
+    openInfo: () => setInfoOpen(true),
+    closeInfo: () => setInfoOpen(false),
+    isInfoOpen: () => state.infoOpen,
+    applyScene,
+    getScene: () => state.scene,
+    scenes: SCENES,
+    setLabels: (v) => { infoCard.setLabels(v); labels.setEnabled(v); },
+    labels,
+    hasAuto,
     setMass: (v) => { panel.setMassText(v); state.mass = v; panel.invalidateInfo(); scheduleRefresh(); },
     screenshot,
     setMode: (m) => panel.setMode(m),
@@ -301,22 +468,28 @@ export function createUI(renderer, { canvas, root = document.body } = {}) {
     refresh: () => panel.refresh(),
     defaults,
     destroy() {
+      cancelTween();
       cam.dispose();
       panel.stopStats();
       offInstall();
       dialogs.destroy();
+      labels.dispose();
+      stripRO?.disconnect();
+      canvasRO?.disconnect();
+      window.removeEventListener('resize', syncStrip);
       window.removeEventListener('keydown', onGlobalKey);
       document.removeEventListener('pointerdown', onDocPointer, true);
       document.removeEventListener('gesturestart', onGesture);
       document.removeEventListener('gesturechange', onGesture);
       canvas.removeEventListener('contextmenu', onCtx);
+      canvas.removeEventListener('pointerdown', onCanvasDown);
       vv?.removeEventListener('resize', syncViewport);
       vv?.removeEventListener('scroll', syncViewport);
       document.removeEventListener('fullscreenchange', syncFs);
       document.removeEventListener('webkitfullscreenchange', syncFs);
       clearTimeout(toastTimer);
       ui.remove();
-      document.body.classList.remove('ui-open');
+      document.body.classList.remove('ui-open', 'info-open');
     },
   };
 }

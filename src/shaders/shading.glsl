@@ -15,13 +15,6 @@ vec3 sanitizeRadiance(vec3 c) {
   return min(c, vec3(6.0e4));
 }
 
-// Piksel ayak izi (M cinsinden, disk düzleminde yaklaşık): kamera mesafesi × piksel açısı; yatık bakışta uzar
-float diskPixelFootprint() {
-  float px = uCam.x * 2.0 * uTanHalf.y / uResolution.y;
-  float cosI = max(abs(cos(uCam.y)), 0.15);
-  return px / sqrt(cosI);
-}
-
 // Bir disk vuruşunun nihai radyansı + (debug için) bileşenleri
 struct DiskShade {
   DiskPhoto photo;
@@ -33,7 +26,8 @@ struct DiskShade {
 DiskShade shadeDiskHit(float r, float gCam, float phi) {
   DiskShade s;
   s.photo = diskPhoto(r, gCam);
-  s.turb = turbulenceFactor(r, phi, diskPixelFootprint());
+  // uTurbDeferred = 1: çarpan animasyon geçişinde (main.frag.glsl MODE_ANIM) uygulanır; burada 1 (yalnız MODE_SHADE bunu açar)
+  s.turb = (uTurbDeferred != 0) ? 1.0 : turbulenceFactor(r, phi, diskPixelFootprint());
   s.edge = diskEdgeFactor(r);
   s.rgb = s.photo.rgb * (s.photo.I * s.turb * s.edge);
   return s;

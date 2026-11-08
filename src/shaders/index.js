@@ -28,23 +28,33 @@ export const fragmentChunks = Object.freeze({
   common, trig, geodesic, integrator, camera, crossing, escape, trace, noise, photometry, turbulence, stars, shading, main,
 });
 
+/** 4c — ertelenmiş gölgelendirme programlarının parça listeleri (yalnız gerekeni derler: iOS'ta kısa derleme süresi). */
+const MODE_CHUNKS = Object.freeze({
+  trace: { common, trig, geodesic, integrator, camera, crossing, escape, trace, main },
+  shade: { common, trig, noise, photometry, turbulence, stars, shading, main },
+  anim: { common, noise, turbulence, main },
+});
+
 const PRECISION = 'precision highp float;\nprecision highp int;\nprecision highp sampler2D;\n';
 
 /**
- * @param {{debug?: boolean, photo?: boolean, nativeTrig?: boolean}} opts
+ * @param {{debug?: boolean, photo?: boolean, nativeTrig?: boolean, mode?: 'visual'|'trace'|'shade'|'anim'}} opts
  *   debug=true : 3 × RGBA32F çıktı (MODE_DEBUG; çekirdek doğrulaması, 4a düzeni).
  *   photo=true : 3 × RGBA32F çıktı (MODE_DEBUG_PHOTO; disk fotometrisi doğrulaması).
- *   ikisi de false: görsel mod (MODE_VISUAL; doğrusal HDR radyans, alt-piksel jitter'ı ve biriktirme).
+ *   ikisi de false: görsel mod. mode='visual' (varsayılan): birleşik (MODE_VISUAL; iz sürme + gölgelendirme tek geçiş; doğrusal HDR radyans, jitter, biriktirme).
+ *     4c ertelenmiş hat: mode='trace' (yalnız geodezik → uG), 'shade' (uG → radyans), 'anim' (radyans × türbülans; main.frag.glsl).
  *   nativeTrig=true: cihazın sin/cos'u (hızlı ama doğruluğu cihaza bağlı); false (varsayılan): trig.glsl sinCos.
  */
-export function buildFragmentShader({ debug = false, photo = false, nativeTrig = false } = {}) {
+export function buildFragmentShader({ debug = false, photo = false, nativeTrig = false, mode = 'visual' } = {}) {
+  const m = debug || photo ? 'visual' : mode;
   const head =
     PRECISION +
     (debug ? '#define MODE_DEBUG\n' : '') +
     (photo ? '#define MODE_DEBUG_PHOTO\n' : '') +
-    (!debug && !photo ? '#define MODE_VISUAL\n' : '') +
+    (!debug && !photo ? `#define MODE_${m === 'visual' ? 'VISUAL' : m.toUpperCase()}\n` : '') +
     (nativeTrig ? '#define NATIVE_TRIG\n' : '');
-  return head + Object.values(fragmentChunks).join('\n');
+  const chunks = MODE_CHUNKS[m] && !debug && !photo ? MODE_CHUNKS[m] : fragmentChunks;
+  return head + Object.values(chunks).join('\n');
 }
 
 /** Sonradan işleme gölgelendiricileri (ESTETİK; bloom + kompozit). */

@@ -105,6 +105,27 @@ try {
   console.log(`  trig.glsl sinCos: ${trig.sinCos.toFixed(0)} ms/kare · yerel sin/cos: ${trig.native.toFixed(0)} ms/kare (oran ${(trig.sinCos / trig.native).toFixed(2)}×)`);
   rows.push({ case: 'trig', ...trig });
 
+  // 4c: ertelenmiş hat aşama maliyetleri (T+S ayrı programlar ↔ birleşik tek geçiş; yalnız S; yalnız A; bloom+kompozit)
+  console.log('\n4c aşama maliyetleri (A high; "iz sürme" = T+S [ertelenmiş] ya da birleşik; ms/kare, benchmark() eşzamanlı):');
+  console.log('boyut'.padEnd(10) + 'birleşik'.padStart(10) + 'T+S (erteli)'.padStart(14) + 'yalnız S'.padStart(10) + 'yalnız A'.padStart(10) + 'A+komp (bloom önbellekli)'.padStart(27) + 'bloom+komp (önbelleksiz)'.padStart(25) + '   (A+komp)/(T+S)');
+  for (const [w, hh] of [[160, 120], [320, 240], [640, 480]]) {
+    await h.page.setViewportSize({ width: w, height: hh });
+    const r = await h.page.evaluate(({ frames, BASE, A }) => {
+      const r = window.__karadelik.renderer;
+      r.setParams({ ...BASE, ...A.p, deferred: false });
+      const fused = r.benchmark({ frames, warmup: 1, post: false }).msPerFrame;
+      r.setParams({ deferred: 'auto' });
+      const ts = r.benchmark({ frames, warmup: 1, post: false }).msPerFrame;
+      const sh = r.benchmark({ frames, warmup: 1, post: false, mode: 'shade' }).msPerFrame;
+      const an = r.benchmark({ frames, warmup: 1, post: false, mode: 'anim' }).msPerFrame;
+      const anPost = r.benchmark({ frames, warmup: 1, post: true, mode: 'anim' }).msPerFrame;
+      const shPost = r.benchmark({ frames, warmup: 1, post: true, mode: 'shade' }).msPerFrame; // her karede yeni taban ⇒ bloom önbelleksiz
+      return { fused, ts, sh, an, anPost, post: shPost - sh };
+    }, { frames: Math.max(frames, 3), BASE: { ...BASE, animate: true, diskTime: null }, A: CASES[0] });
+    console.log(`${w}×${hh}`.padEnd(10) + r.fused.toFixed(0).padStart(10) + r.ts.toFixed(0).padStart(14) + r.sh.toFixed(0).padStart(10) + r.an.toFixed(0).padStart(10) + r.anPost.toFixed(0).padStart(27) + r.post.toFixed(0).padStart(25) + `   ${(r.anPost / r.ts).toFixed(2)}`);
+    rows.push({ stage: `${w}x${hh}`, ...r });
+  }
+
   // Chromium "GPU stall due to ReadPixels": ölçümün kendi eşzamanlama okumasının (benchmark) performans uyarısı; beklenen ve zararsız
 const errs = h.errors.filter((e) => !e.includes('GPU stall due to ReadPixels'));
 console.log('\nKonsol hata/uyarı (benchmark readPixels performans uyarısı hariç):', errs.length ? '\n' + errs.join('\n') : 'YOK');

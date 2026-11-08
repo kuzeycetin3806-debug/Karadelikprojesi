@@ -40,7 +40,8 @@ export const DEFAULT_PARAMS = Object.freeze({
   rEscape: 'auto', // 'auto' = max(300, 2·rCam, 6·b_max) veya sayı
   kappa: null, // null: kaliteden; sayı: elle geçersiz kıl (test/ayar)
   maxSteps: null, // null: kaliteden/spine bağlı bütçeden; sayı: elle geçersiz kıl
-  axisGuard: true, // 4b: kutup ekseni yakınında adım koruması (görsel mod; debug yolunda varsayılan KAPALI). README §Eksen koruması
+  axisGuard: true, // 4b: kutup ekseni yakınında adım koruması (görsel mod ve debug yolları; README §2.1)
+  stepRule: 'full', // 4c: RK4 adım kuralı 'full' (4a/4b kuralı; VARSAYILAN) | 'nodrag' (çerçeve sürüklenmesi adımdan dışlanır; src/math/raytracer.js stepRule ile birebir). nodrag varsayılan YAPILMADI: README §2.2
   planeGuard: true, // YALNIZ TEST: false ⇒ θ_cam=π/2 bant koruması kapalı (negatif kontrol); üretimde hep true
 
   // --- Adım 4b — FİZİKSEL disk ışıması (docs/physics/disk.md §4.3)
@@ -68,7 +69,10 @@ export const DEFAULT_PARAMS = Object.freeze({
   milkyWay: 0.6, // ESTETİK Samanyolu bandı şiddeti (0 = yok)
 
   // --- Adım 4b — performans / etkileşim
-  performance: 'balanced', // 'quality' | 'balanced' | 'battery' (PERFORMANCE_PRESETS)
+  performance: 'auto', // 'auto' (4c varsayılan: cihaza/ölçülen kare süresine uyarlanır) | 'quality' | 'balanced' | 'battery' (PERFORMANCE_PRESETS)
+  deferred: 'auto', // 4c: ertelenmiş gölgelendirme (geodezik önbelleği): 'auto' (destekleniyorsa) | false (birleşik tek geçiş; test/yedek)
+  maxTracePixels: null, // 4c: null: ön ayar/cihazdan; sayı: durağan iz sürme çözünürlüğü üst sınırı (piksel sayısı; sonra tuvale bilinear büyütülür)
+  maxTickPixels: null, // 4c: null: ön ayar/cihazdan; sayı: bir rAF karesinde iz sürülecek en çok piksel (aşılırsa kare-üstü şeritlere bölünür; iOS GPU zaman aşımı koruması)
   progressive: true, // durağan karede jitter'lı kare biriktirme (anti-aliasing)
   interactionScale: null, // null: ön ayardan; hareket sırasında çözünürlük çarpanı
   accumFrames: null, // null: ön ayardan; biriktirilecek kare sayısı
@@ -81,13 +85,22 @@ export const DEFAULT_PARAMS = Object.freeze({
  *   interactionScale : sürükleme/parametre değişimi sırasında iz sürme çözünürlük çarpanı
  *   settleMs         : son değişimden bu kadar ms sonra tam çözünürlüğe dönülür
  *   accumFrames      : durağan karede biriktirilecek jitter'lı kare sayısı (progressive)
- *   animationFps     : türbülans animasyonu açıkken en çok kare/sn
- *   dynamicResolution, minDynamicScale, maxDynamicScale : kare süresi hedefi tutmazsa çözünürlüğü otomatik düşür
+ *   animationFps     : türbülans animasyonu açıkken en çok kare/sn (ertelenmiş hatta yalnız ucuz animasyon geçişi çalışır)
+ *   dynamicResolution, minDynamicScale, maxDynamicScale : ölçülen kare süresi hedefi tutmazsa çözünürlüğü basamaklı (2^(−k/6)) düşür; histerezis + ısınma bekleme süresi
+ *   maxTracePixels   : durağan iz sürme çözünürlüğü üst sınırı (piksel; tuvale bilinear büyütülür — GÖSTERİM)
+ *   maxTickPixels    : bir rAF karesinde iz sürülecek en çok piksel (üstü şeritlere bölünür)
+ *   cheapBloom       : true | false | 'auto' (auto: adaptiveLevel ≥ 3 ya da animasyon kare atlıyorsa ucuz bloom)
+ * 'auto' cihaza göre çözülür (effectivePerformance(p, device)); diğerleri cihazdan bağımsızdır.
  */
 export const PERFORMANCE_PRESETS = Object.freeze({
-  quality: { interactionScale: 0.6, settleMs: 150, accumFrames: 16, animationFps: 60, dynamicResolution: false, minDynamicScale: 0.5, maxDynamicScale: 1 },
-  balanced: { interactionScale: 0.5, settleMs: 150, accumFrames: 8, animationFps: 30, dynamicResolution: true, minDynamicScale: 0.35, maxDynamicScale: 1 },
-  battery: { interactionScale: 0.35, settleMs: 120, accumFrames: 4, animationFps: 15, dynamicResolution: true, minDynamicScale: 0.3, maxDynamicScale: 0.7 },
+  quality: { interactionScale: 0.6, settleMs: 150, accumFrames: 16, animationFps: 60, dynamicResolution: false, minDynamicScale: 0.5, maxDynamicScale: 1, maxTracePixels: 1e9, maxTickPixels: 1e9, cheapBloom: false },
+  balanced: { interactionScale: 0.5, settleMs: 150, accumFrames: 8, animationFps: 30, dynamicResolution: true, minDynamicScale: 0.35, maxDynamicScale: 1, maxTracePixels: 1e9, maxTickPixels: 4e6, cheapBloom: 'auto' },
+  battery: { interactionScale: 0.35, settleMs: 120, accumFrames: 4, animationFps: 20, dynamicResolution: true, minDynamicScale: 0.3, maxDynamicScale: 0.7, maxTracePixels: 0.8e6, maxTickPixels: 0.6e6, cheapBloom: true },
+  // 'auto' (4c varsayılan): cihaz sınıfına göre aşağıdaki iki satırdan biri
+  auto: {
+    desktop: { interactionScale: 0.5, settleMs: 150, accumFrames: 8, animationFps: 60, dynamicResolution: true, minDynamicScale: 0.3, maxDynamicScale: 1, maxTracePixels: 8e6, maxTickPixels: 3e6, cheapBloom: 'auto' },
+    mobile: { interactionScale: 0.4, settleMs: 130, accumFrames: 4, animationFps: 30, dynamicResolution: true, minDynamicScale: 0.25, maxDynamicScale: 1, maxTracePixels: 1.0e6, maxTickPixels: 0.5e6, cheapBloom: true },
+  },
 });
 
 export const TONEMAPS = Object.freeze(['aces', 'agx', 'neutral', 'none']);
@@ -97,23 +110,50 @@ export const TURB_PERIOD = 50;
 
 /** Yalnız sonradan işleme (iz sürme gerektirmez): değişince yalnız bloom+kompozit yeniden çalışır. */
 export const POST_ONLY_KEYS = Object.freeze(['exposure', 'tonemap', 'bloom', 'bloomStrength', 'bloomRadius']);
-/** Değişince iz sürmeyi yeniden çalıştırmayan ama hedef/boyut etkileyen anahtarlar (etkileşim sayılmaz). */
+/**
+ * 4c — yalnız GÖLGELENDİRME (geodezik değişmez): ertelenmiş hatta yalnız gölgelendirme geçişi (+ animasyon geçişi) yeniden çalışır, geodezik önbellekten gelir.
+ * (Birleşik/yedek hatta bunlar da tam iz sürme gerektirir.)
+ */
+export const SHADE_ONLY_KEYS = Object.freeze([
+  'Tmax', 'fCol', 'brightnessMode', 'turbulence', 'turbulenceAmp', 'turbulenceScale', 'diskEdgeFade',
+  'stars', 'starBrightness', 'milkyWay', 'animate', 'diskTime',
+]);
+/** Yalnız simülasyon saatinin hızını değiştirir (yeni çizim gerekmez; animasyon geçişi bir sonraki karede yeni hızı kullanır). */
+export const CLOCK_KEYS = Object.freeze(['timeScale']);
+/**
+ * 4c — yeniden çizim GEREKTİRMEYEN anahtarlar: döngü kendi karşılaştırır (ölçek değiştiyse bir kez yeniden izler, biriktirme sayısı/animasyon hızı ayarı vb.).
+ * Önceden bunlar da tam yeniden iz sürmeyi tetikliyordu (ör. `animationFps` değişimi bir kare donma).
+ */
+export const LOOP_ONLY_KEYS = Object.freeze([
+  'resolutionScale', 'maxPixelRatio', 'performance', 'progressive', 'interactionScale', 'accumFrames', 'animationFps',
+  'dynamicResolution', 'maxTracePixels', 'maxTickPixels',
+]);
+/** Değişince geodezik/çekirdek yeniden iz sürme gerektiren ama düşük çözünürlüklü "etkileşim" sayılmayan anahtarlar (ayar/kalite değişimi). */
 export const NON_INTERACTIVE_KEYS = Object.freeze([
-  'quality', 'resolutionScale', 'maxPixelRatio', 'performance', 'progressive', 'interactionScale', 'accumFrames', 'animationFps',
-  'dynamicResolution', 'kappa', 'maxSteps', 'analyticFate', 'rEscape', 'planeGuard', 'maxDiskHits', 'axisGuard',
+  ...LOOP_ONLY_KEYS, 'quality', 'kappa', 'maxSteps', 'analyticFate', 'rEscape', 'planeGuard', 'maxDiskHits', 'axisGuard', 'stepRule', 'deferred',
 ]);
 
-/** Ön ayar + elle geçersiz kılmalarla etkin performans ayarı. */
-export function effectivePerformance(p) {
-  const pre = PERFORMANCE_PRESETS[p.performance];
+/**
+ * Ön ayar + elle geçersiz kılmalarla etkin performans ayarı.
+ * @param {object} p  normalizeParams çıktısı
+ * @param {{mobile?: boolean, lowPower?: boolean, safeLevel?: number}} [device]  cihaz sınıfı ('auto' ön ayarını çözer); lowPower: pil azalıyor (animasyon ≤ 20 kare/sn);
+ *        safeLevel: art arda bağlam kaybı sayısı (iz sürme piksel bütçesi ve şerit boyu her seviyede ×0.7)
+ */
+export function effectivePerformance(p, device = {}) {
+  const raw = PERFORMANCE_PRESETS[p.performance];
+  const pre = p.performance === 'auto' ? (device.mobile ? raw.mobile : raw.desktop) : raw;
+  const safe = 0.7 ** (device.safeLevel ?? 0);
   return {
     interactionScale: p.interactionScale ?? pre.interactionScale,
     settleMs: pre.settleMs,
     accumFrames: p.progressive ? (p.accumFrames ?? pre.accumFrames) : 1,
-    animationFps: p.animationFps ?? pre.animationFps,
+    animationFps: Math.min(p.animationFps ?? pre.animationFps, device.lowPower ? 20 : Infinity),
     dynamicResolution: p.dynamicResolution ?? pre.dynamicResolution,
     minDynamicScale: pre.minDynamicScale,
     maxDynamicScale: pre.maxDynamicScale,
+    maxTracePixels: (p.maxTracePixels ?? pre.maxTracePixels) * safe,
+    maxTickPixels: (p.maxTickPixels ?? pre.maxTickPixels) * safe,
+    cheapBloom: pre.cheapBloom,
   };
 }
 
@@ -143,6 +183,7 @@ export function normalizeParams(p, base = DEFAULT_PARAMS) {
   o.disk = !!o.disk;
   o.planeGuard = !!o.planeGuard;
   o.axisGuard = !!o.axisGuard;
+  if (o.stepRule !== 'nodrag' && o.stepRule !== 'full') throw new RangeError(`stepRule 'nodrag' | 'full' olmalı (verilen: ${o.stepRule})`);
   o.resolutionScale = clamp(num('resolutionScale', o.resolutionScale), 0.1, 1);
   o.maxPixelRatio = clamp(num('maxPixelRatio', o.maxPixelRatio), 0.5, 4);
   o.analyticFate = !!o.analyticFate;
@@ -169,7 +210,10 @@ export function normalizeParams(p, base = DEFAULT_PARAMS) {
   o.stars = !!o.stars;
   o.starBrightness = clamp(num('starBrightness', o.starBrightness), 0, 10);
   o.milkyWay = clamp(num('milkyWay', o.milkyWay), 0, 2);
-  if (!(o.performance in PERFORMANCE_PRESETS)) throw new RangeError(`performance 'quality' | 'balanced' | 'battery' olmalı (verilen: ${o.performance})`);
+  if (!(o.performance in PERFORMANCE_PRESETS)) throw new RangeError(`performance 'auto' | 'quality' | 'balanced' | 'battery' olmalı (verilen: ${o.performance})`);
+  if (o.deferred !== 'auto') o.deferred = !!o.deferred;
+  if (o.maxTracePixels !== null) o.maxTracePixels = Math.max(1e4, num('maxTracePixels', o.maxTracePixels));
+  if (o.maxTickPixels !== null) o.maxTickPixels = Math.max(1e3, num('maxTickPixels', o.maxTickPixels));
   o.progressive = !!o.progressive;
   if (o.interactionScale !== null) o.interactionScale = clamp(num('interactionScale', o.interactionScale), 0.1, 1);
   if (o.accumFrames !== null) o.accumFrames = clamp(Math.round(num('accumFrames', o.accumFrames)), 1, 64);
@@ -225,6 +269,7 @@ export function deriveUniforms(p, width, height, canvasHeight = height) {
     diskOn: p.disk && p.diskOut > rIn ? 1 : 0,
     planeGuard: p.planeGuard ? 1 : 0,
     axisKappa: p.axisGuard ? AXIS_KAPPA : 0,
+    stepNoDrag: p.stepRule === 'nodrag' ? 1 : 0,
     maxDiskHits: p.maxDiskHits,
     rIn,
     rOut: p.diskOut,

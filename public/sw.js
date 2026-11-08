@@ -8,7 +8,9 @@ const VERSION = 'v1';
 const CACHE = `karadelik-${VERSION}`;
 const SCOPE = self.registration.scope; // sonu '/' ile biter
 const INDEX = SCOPE;
-const SHELL = ['manifest.webmanifest', 'kilavuz.html', 'gizlilik.html', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.svg'].map((p) => new URL(p, SCOPE).href);
+// Sahne küçük resimleri (tests/ui/make-scenes.mjs üretir; src/ui/scenes.js kimlikleriyle aynı): çevrimdışı da kart şeridinde görünsün.
+const SCENES = ['schwarzschild', 'kerr09', 'extreme', 'faceOn', 'tilt17', 'retro', 'close', 'below'].map((id) => `scenes/${id}.webp`);
+const SHELL = ['manifest.webmanifest', 'kilavuz.html', 'gizlilik.html', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.svg', ...SCENES].map((p) => new URL(p, SCOPE).href);
 
 /** index.html metninden aynı kökenli bağımlılık adreslerini çıkarır (script/link/modulepreload). */
 function assetUrlsFrom(html) {

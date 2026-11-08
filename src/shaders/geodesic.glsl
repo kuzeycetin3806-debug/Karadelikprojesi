@@ -47,7 +47,10 @@ State rhs(State y, out vec2 sc) {
 float naturalStep(State y, State F, float s) {
   float rho = y.r - uRp;
   float q = F.r / rho;
-  float w = s * F.ph;
+  // 'nodrag' (uStepNoDrag = 1): φ' yerine L/sinθ − a sinθ  ⇒  s·(L/s² − a). Çerçeve sürüklenmesi (aP/Δ) terimi ufka yakın adımı gereksiz küçültür;
+  // φ döngüsel olduğundan r, θ dinamiğine geri beslenmez (math/README §7.3). CPU: raytracer.js vphOf (stepRule:'nodrag').
+  float vph = (uStepNoDrag != 0) ? ((g_hasL ? g_L / (s * s) : 0.0) - uA) : F.ph;
+  float w = s * vph;
   float sum = (q * q + F.th * F.th) + w * w;
   return 1.0 / sqrt(sum);
 }

@@ -15,10 +15,10 @@ export const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.
 export const CHROMIUM_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 
 /**
- * @param {{width?:number, height?:number}} [o]  tarayıcı görünümü (canvas boyutu); küçük tut: SwiftShader yazılımsal
+ * @param {{width?:number, height?:number, deviceScaleFactor?:number, hasTouch?:boolean}} [o]  tarayıcı görünümü (canvas boyutu); küçük tut: SwiftShader yazılımsal
  * @returns {Promise<{page, messages:string[], errors:string[], url:string, close:()=>Promise<void>}>}
  */
-export async function startHarness({ width = 128, height = 96 } = {}) {
+export async function startHarness({ width = 128, height = 96, deviceScaleFactor = 1, hasTouch = false } = {}) {
   const server = await createServer({
     root: PROJECT_ROOT,
     logLevel: 'warn',
@@ -28,7 +28,7 @@ export async function startHarness({ width = 128, height = 96 } = {}) {
   const url = server.resolvedUrls.local[0];
 
   const browser = await chromium.launch({ headless: true, args: CHROMIUM_ARGS });
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor, hasTouch });
   const messages = [];
   const errors = [];
   page.on('console', (m) => {
