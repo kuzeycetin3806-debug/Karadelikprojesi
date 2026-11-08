@@ -16,7 +16,14 @@ const KEY_ANGLE = 3 * DEG;
 const KEY_ZOOM = 0.08; // ln(r) adımı
 const SMOOTH_RATE = 18; // 1/s (üstel yaklaşma)
 const SCENE_RATE = 5; // 1/s: sahne geçişlerinde daha yumuşak (≈ 1,5–2 s)
-const INERTIA_DECAY = 3.2; // 1/s
+const INERTIA_DECAY = 3.4; // 1/s (iOS kaydırma hissi: üstel sürtünme)
+const INERTIA_DECAY_REDUCED = 14; // prefers-reduced-motion: atalet çok kısa
+const INERTIA_MAX = 6; // rad/s
+const ZOOM_RATE = 7; // 1/s: çift dokunma yakınlaş/uzaklaş geçişi
+const PINCH_WHEEL = 0.012; // ctrl+tekerlek (iz yüzeyi pinch'i): ln(r) / deltaY birimi
+const NEAR_FACTOR = 0.4; // çift dokunma "yakın" uzaklığı = sahne uzaklığı × 0,4
+const LOCK_PX = 8; // iki parmak jesti kilitlenme eşiği (piksel)
+const MIN_ROT_DIST = 40; // parmaklar bu kadar yakınken dönme algılanmaz (gürültü)
 const TAP_MS = 300;
 const DOUBLE_TAP_MS = 350;
 const TAP_SLOP = 10;
